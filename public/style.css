@@ -1000,7 +1000,11 @@ dialog h3 {
     padding: 7px;
   }
   .quiet:last-child span {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
   .entry {
     min-height: calc(100svh - 60px);

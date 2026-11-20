@@ -104,6 +104,17 @@ export async function unpackMessage(peer, room, secret, packet) {
     throw Error("Unverified message");
   return open(await aes(decode(secret)), context, encrypted);
 }
+export async function verifyRecipient(expected, peer) {
+  if (
+    peer?.code !== expected ||
+    (await personCode(peer.box, peer.sign)) !== expected
+  ) {
+    throw Error(
+      "The returned device keys do not match the person code you entered.",
+    );
+  }
+  return peer;
+}
 async function inviteKey(device, peer, context) {
   if ((await personCode(peer.box, peer.sign)) !== peer.code)
     throw Error("Person code does not match the device keys.");

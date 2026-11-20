@@ -7,6 +7,7 @@ import { openStore } from "../node-store.mjs";
 import { makeRelay } from "../relay.js";
 import {
   makeDevice,
+  verifyRecipient,
   signText,
   loginProof,
   packMessage,
@@ -229,4 +230,17 @@ test("challenge is single-use and cross-origin requests are refused", async () =
   } finally {
     f.db.close();
   }
+});
+
+test("an invite is bound to the exact person code entered by the sender", async () => {
+  const intended = await makeDevice();
+  const other = await makeDevice();
+  assert.equal(
+    (await verifyRecipient(intended.code, intended)).code,
+    intended.code,
+  );
+  await assert.rejects(verifyRecipient(intended.code, other));
+  await assert.rejects(
+    verifyRecipient(intended.code, { ...other, code: intended.code }),
+  );
 });

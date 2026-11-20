@@ -1,5 +1,6 @@
 import {
   makeDevice,
+  verifyRecipient,
   random,
   digest,
   loginProof,
@@ -432,6 +433,10 @@ function newConversation() {
     ),
   );
 }
+async function lookupPerson(input) {
+  const code = input.trim().toUpperCase();
+  return verifyRecipient(code, await api("lookup", { code }));
+}
 function composeNew(kind) {
   const direct = kind === "direct",
     d = dialog(
@@ -460,9 +465,7 @@ function composeNew(kind) {
         throw Error(
           direct ? "Paste a person code." : "Enter a discussion name.",
         );
-      const peer = direct
-        ? await api("lookup", { code: value.toUpperCase() })
-        : null;
+      const peer = direct ? await lookupPerson(value) : null;
       if (peer?.code === device.code)
         throw Error("Enter another person’s code.");
       const r = await create(kind, direct ? "Direct chat" : value);
@@ -517,9 +520,7 @@ function inviteDialog(r) {
     button(
       "Send invitation",
       async () => {
-        const peer = await api("lookup", {
-          code: f.i.value.trim().toUpperCase(),
-        });
+        const peer = await lookupPerson(f.i.value);
         await inviteByCode(r, peer);
         close();
         toast("Invitation sent.");
@@ -768,8 +769,27 @@ function confirmLeave() {
     ),
   );
 }
+let workspaceVersion = "";
 function render() {
   if (!device) return;
+  const version = JSON.stringify([
+    device.code,
+    name,
+    keep,
+    days,
+    current,
+    filter,
+    Array.from(rooms.values(), (r) => [
+      r.id,
+      r.owner,
+      r.peers.map((p) => [p.code, p.badge]),
+      r.msgs.length,
+      r.msgs.at(-1)?.seq,
+    ]),
+    Array.from(invites.keys()),
+  ]);
+  if (version === workspaceVersion) return;
+  workspaceVersion = version;
   $("quickCode").textContent = device.code;
   const card = $("identityCard"),
     av = el("span", "av", name.slice(0, 1).toUpperCase()),
@@ -940,7 +960,7 @@ async function poll() {
       after = Math.max(after, e.seq);
       const r = rooms.get(e.room),
         p = r?.peers.find((p) => p.code === e.code);
-      if (!r || !p || r.seen.has(e.seq)) continue;
+      if (!r || !p || r.seen.has(e.packet.slice(-86))) continue;
       try {
         const v = await unpackMessage(p, r.id, r.key, e.packet);
         if (
@@ -949,7 +969,7 @@ async function poll() {
           v.text.length > 1500
         )
           continue;
-        r.seen.add(e.seq);
+        r.seen.add(e.packet.slice(-86));
         r.msgs.push({
           seq: e.seq,
           name: v.name.slice(0, 32),
@@ -958,7 +978,7 @@ async function poll() {
           created: e.created,
         });
         if (r.msgs.length > 500) {
-          r.seen.delete(r.msgs.shift().seq);
+          r.msgs.shift();
         }
       } catch {
         /* Drop invalid or unauthenticated packets. */
