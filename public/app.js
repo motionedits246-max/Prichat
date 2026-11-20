@@ -11,48 +11,21 @@ import {
   unpackInvite,
 } from "./crypto.js";
 const $ = (id) => document.getElementById(id);
-const shapes = {
-  shield:
-    '<path d="M12 3 4 6v5c0 5 3 8 8 10 5-2 8-5 8-10V6z"/><path d="m8.7 11.8 2.2 2.2 4.5-4.8"/>',
-  fingerprint:
-    '<path d="M3.5 10a8.5 8.5 0 0 1 17 0m-14 4v-3a5.5 5.5 0 0 1 11 0c0 5-1 8-3 10M10 20c2-3 2-5 2-9m3 1c0 3-.3 5-1.2 7M4 14c0 2-.4 3-1 4m5-2c0 1.4-.5 3-1.4 4"/>',
-  user: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20v-2a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v2"/>',
-  hourglass:
-    '<path d="M6 3h12M6 21h12M7 3v3c0 2 2 4 5 6-3 2-5 4-5 6v3m10-18v3c0 2-2 4-5 6 3 2 5 4 5 6v3"/>',
-  bookmark: '<path d="M6 4h12v17l-6-4-6 4z"/>',
-  layers: '<path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/>',
-  lock: '<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
-  code: '<path d="m7 7-5 5 5 5m10-10 5 5-5 5m-3-14-4 18"/>',
-  "user-x":
-    '<circle cx="9" cy="8" r="3.5"/><path d="M2 20v-2a6 6 0 0 1 6-6h3m5-3 6 6m0-6-6 6"/>',
-  timer:
-    '<circle cx="12" cy="14" r="7.5"/><path d="M12 10v4l2 2M9 2h6m-3 0v4"/>',
-  message: '<path d="M4 4h16v13H9l-5 4z"/>',
-  "square-pen": '<path d="M12 5H5v14h14v-7m-9 2 1-4 8-8 3 3-8 8z"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  back: '<path d="m14 5-7 7 7 7"/>',
-  "user-plus":
-    '<circle cx="9" cy="8" r="3.5"/><path d="M2 20v-2a6 6 0 0 1 6-6h3m7-4v8m-4-4h8"/>',
-  exit: '<path d="M11 4H4v16h7m-1-8h11m-4-4 4 4-4 4"/>',
-  smile:
-    '<circle cx="12" cy="12" r="9"/><path d="M8 14c2 3 6 3 8 0m-8-5h.01M16 9h.01"/>',
-  send: '<path d="m21 3-6 18-4-8-8-4zM11 13 21 3"/>',
-  x: '<path d="m6 6 12 12M18 6 6 18"/>',
-  copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
-  check: '<path d="m4 13 5 5L20 6"/>',
-  badge:
-    '<path d="m12 2 3 2 4 .7.7 4 2 3.3-2 3-.7 4-4 .7-3 2-3.2-2-4-.7-.7-4L2 12l2.1-3 .7-4 4-.7z" fill="currentColor" stroke="none"/><path d="m7.8 12.1 2.8 2.8 5.6-6.2" stroke="#15263e" stroke-width="2.4"/>',
-  link: '<path d="m10 14 4-4m-5-1 3-3a4 4 0 0 1 6 6l-3 3m0 0-3 3a4 4 0 0 1-6-6l3-3"/>',
-  users:
-    '<circle cx="9" cy="8" r="3"/><path d="M2 20v-2a6 6 0 0 1 12 0v2m2-15a3 3 0 0 1 0 6m1 3c3 0 5 2 5 5"/>',
-};
 function icon(name) {
   const i = document.createElement("i");
   i.setAttribute("aria-hidden", "true");
-  i.innerHTML =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">' +
-    (shapes[name] || shapes.message) +
-    "</svg>";
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg"),
+    use = document.createElementNS(ns, "use");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.9");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  use.setAttribute("href", "/lucide.svg#" + name);
+  svg.append(use);
+  i.append(svg);
   return i;
 }
 document
@@ -101,6 +74,7 @@ function errorNotice(e) {
 }
 function dialog(title, glyph) {
   const d = $("modal");
+  d.classList.remove("profile-sheet");
   $("modalTitle").textContent = title;
   d.setAttribute("aria-labelledby", "modalTitle");
   $("modalIcon").replaceChildren(icon(glyph));
@@ -195,7 +169,8 @@ let saved = null,
   entryReady = false;
 const rooms = new Map(),
   invites = new Map();
-let pending = null;
+let pending = null,
+  deferredAction = "";
 const roomPattern = /^[A-Za-z0-9_-]{22}$/,
   secretPattern = /^[A-Za-z0-9_-]{43}$/;
 function validInvite(o) {
@@ -302,9 +277,10 @@ async function init() {
   } finally {
     entryReady = true;
   }
-  if (pending)
-    $("modeHint").textContent =
-      "Create an identity to open the room invitation.";
+  if (pending) {
+    startIdentity();
+    $("modeHint").textContent = "Choose a name to open this room invitation.";
+  }
 }
 init();
 $("identityForm").onsubmit = async (e) => {
@@ -355,14 +331,21 @@ $("identityForm").onsubmit = async (e) => {
     storage = result.storage;
     epoch++;
     $("entry").hidden = true;
-    $("workspace").hidden = false;
-    $("topName").textContent = name;
+    $("workspace").classList.remove("entry-open");
+    $("findRoom").value = "";
+    $("searchRow").hidden = true;
+    $("searchToggle").setAttribute("aria-expanded", "false");
+    for (const row of $("starterRows").children) row.hidden = false;
     render();
     await poll();
     if (pending) {
       const inv = pending;
       pending = null;
       offer(inv);
+    } else if (deferredAction) {
+      const next = deferredAction;
+      deferredAction = "";
+      runAction(next);
     }
   } catch (err) {
     $("entryError").textContent = err.message;
@@ -395,9 +378,12 @@ function openRoom(id) {
   if (current && rooms.has(current))
     rooms.get(current).draft = $("draft").value;
   current = id;
+  $("entry").hidden = true;
+  $("workspace").classList.remove("entry-open");
   const r = rooms.get(id);
   $("draft").value = r?.draft || "";
   $("workspace").classList.toggle("chat-open", !!r);
+  updateSend();
   render();
 }
 async function create(kind, label) {
@@ -629,57 +615,40 @@ function offer(inv, id) {
   );
 }
 function profile() {
-  if (!device) {
-    const d = dialog("Your identity", "fingerprint");
-    d.append(
-      el(
-        "p",
-        "modal-copy",
-        "Choose a display name to create your person code. Temporary identities last for this tab. Saved identities can be reopened on this device.",
-      ),
-    );
-    actions(
-      d,
-      button(
-        "Choose a name",
-        () => {
-          close();
-          $("name").focus();
-        },
-        "primary",
-      ),
-    );
-    return;
-  }
   const d = dialog(name, "fingerprint");
+  $("modal").classList.add("profile-sheet");
+  $("modalIcon").replaceChildren(avatar("noir"));
+  if (days >= 3) $("modalTitle").append(badge());
   d.append(
     el("p", "info-text", keep ? "Saved on this device" : "Temporary identity"),
-    el("div", "code-output", device.code),
   );
-  actions(
-    d,
-    button("Copy person code", () => copy(device.code), "primary"),
-  );
+  const copyCode = button("", () => copy(device.code), "identity-code");
+  copyCode.setAttribute("aria-label", "Copy person code");
+  copyCode.append(el("code", null, device.code), icon("copy"));
+  d.append(copyCode);
+  for (const [glyph, label, value] of [
+    ["activity", "Active connections", String(connections)],
+    [
+      "badge",
+      "Activity badge",
+      keep ? (days >= 3 ? "Unlocked" : (days || 0) + " / 3 days") : "Temporary",
+    ],
+  ]) {
+    const line = el("div", "stat-line");
+    line.append(
+      icon(glyph),
+      el("span", null, label),
+      el("strong", null, value),
+    );
+    d.append(line);
+  }
   d.append(
-    el("h3", null, "Your connections"),
     el(
       "p",
-      "info-text",
-      connections +
-        " active " +
-        (connections === 1 ? "connection" : "connections") +
-        " for this person code.",
-    ),
-    el("h3", null, "Activity badge"),
-    el(
-      "p",
-      "info-text",
+      "helper",
       keep
-        ? days >= 3
-          ? "Blue tick unlocked for this device."
-          : (days || 0) +
-            " / 3 messaging days. Send to an occupied room on three different UTC dates."
-        : "Keep this identity to earn a blue tick after messaging other people on three different days.",
+        ? "Message others on three different UTC dates to earn the blue tick."
+        : "Keep this identity to earn a badge across visits.",
     ),
   );
   if (!keep)
@@ -772,6 +741,7 @@ function confirmLeave() {
 let workspaceVersion = "";
 function render() {
   if (!device) return;
+  const search = $("findRoom").value.trim().toLocaleLowerCase();
   const version = JSON.stringify([
     device.code,
     name,
@@ -779,6 +749,7 @@ function render() {
     days,
     current,
     filter,
+    search,
     Array.from(rooms.values(), (r) => [
       r.id,
       r.owner,
@@ -790,69 +761,89 @@ function render() {
   ]);
   if (version === workspaceVersion) return;
   workspaceVersion = version;
-  $("quickCode").textContent = device.code;
-  const card = $("identityCard"),
-    av = el("span", "av", name.slice(0, 1).toUpperCase()),
-    info = el("span", "details"),
-    pn = el("strong", null, name);
-  if (days >= 3) pn.append(" ", badge());
-  info.append(
-    pn,
-    el("small", null, keep ? "Saved identity" : "Temporary identity"),
-  );
-  card.replaceChildren(av, info, icon("fingerprint"));
+  $("selfDot").hidden = false;
+  $("profileTop").setAttribute("aria-label", "Your identity: " + name);
+  $("orbitName").textContent = name;
+  $("begin").hidden = true;
+  $("emptyCopy").textContent =
+    "Select a conversation to start messaging privately, right here in this window.";
+  $("listTitle").textContent =
+    filter === "discussion"
+      ? "Discussions"
+      : filter === "direct"
+        ? "Direct chats"
+        : "Messages";
   const list = $("roomList");
   list.replaceChildren();
-  const visible = Array.from(rooms.values()).filter(
-    (r) => filter === "all" || r.kind === filter,
-  );
-  if (!visible.length)
+  const visible = [...rooms.values()]
+    .filter(
+      (r) =>
+        (filter === "all" || r.kind === filter) &&
+        (!search ||
+          displayRoom(r).toLocaleLowerCase().includes(search) ||
+          r.msgs.some((m) => m.text.toLocaleLowerCase().includes(search))),
+    )
+    .sort(
+      (a, b) => (b.msgs.at(-1)?.created || 0) - (a.msgs.at(-1)?.created || 0),
+    );
+  const starters = !rooms.size && !search && filter === "all";
+  $("starterRows").hidden = !starters;
+  $("listCaption").textContent = starters
+    ? "Start a conversation"
+    : search
+      ? "Search results"
+      : "Recent conversations";
+  if (!visible.length && !starters)
     list.append(
       el(
         "p",
         "side-empty",
-        "No " +
-          (filter === "all"
-            ? "conversations"
-            : filter === "direct"
-              ? "direct chats"
-              : "discussions") +
-          " yet.",
+        search ? "No matching conversations." : "No conversations here yet.",
       ),
     );
   for (const r of visible) {
     const b = button(
-        "",
-        () => openRoom(r.id),
-        "room-row" + (r.id === current ? " selected" : ""),
-      ),
-      a = el("span", "room-avatar"),
-      t = el("span", "details");
-    a.append(icon(r.kind === "direct" ? "message" : "layers"));
-    t.append(
-      el("strong", null, displayRoom(r)),
-      el("small", null, r.msgs.at(-1)?.text || "Temporary room"),
+      "",
+      () => openRoom(r.id),
+      "room-row" + (r.id === current ? " selected" : ""),
     );
-    b.append(a, t);
+    const wrap = el("span", "list-face");
+    wrap.append(avatar(r.kind === "direct" ? "noir" : "violet"));
+    const details = el("span", "details"),
+      title = el("strong", null, displayRoom(r)),
+      last = r.msgs.at(-1);
+    if (
+      r.kind === "direct" &&
+      r.peers.some((p) => p.code !== device.code && p.badge)
+    )
+      title.append(badge());
+    details.append(title, el("small", null, last?.text || "Temporary room"));
+    const age = el("span", "row-age");
+    age.append(
+      el("span", null, last ? clock(last.created) : ""),
+      icon(last ? "circle-check" : "hourglass"),
+    );
+    b.append(wrap, details, age);
     list.append(b);
   }
   const ib = $("invitations");
   ib.replaceChildren();
-  ib.hidden = invites.size === 0;
-  if (invites.size) ib.append(el("p", "invite-label", "Invitations"));
-  for (const [id, v] of invites) {
-    const b = button("", () => offer(v, id), "invite-row"),
-      det = el("span", "details");
-    det.append(
-      el("strong", null, v.fromName || "Room invitation"),
-      el("small", null, v.label),
-    );
-    b.append(icon("user-plus"), det);
-    ib.append(b);
+  ib.hidden = !invites.size;
+  $("inviteDot").hidden = !invites.size;
+  if (invites.size) {
+    ib.append(el("p", "invite-label", "Invitations"));
+    for (const [id, v] of invites) {
+      ib.append(
+        option(v.fromName || "Room invitation", v.label, "user-plus", () =>
+          offer(v, id),
+        ),
+      );
+    }
   }
   const r = rooms.get(current);
-  $("emptyChat").hidden = !!r;
+  $("emptyChat").hidden = !!r || !$("entry").hidden;
   $("roomPanel").hidden = !r;
+  $("roomPanel").classList.toggle("discussion", r?.kind === "discussion");
   if (!r) {
     $("thread").replaceChildren();
     $("roomTitle").textContent = "";
@@ -862,8 +853,12 @@ function render() {
   }
   $("roomTitle").textContent = displayRoom(r);
   $("roomSub").textContent = (r.peers.length || 1) + " in room · Temporary";
+  $("headAvatar").className =
+    "avatar " + (r.kind === "direct" ? "noir" : "violet");
+  $("draft").placeholder = "Message " + displayRoom(r) + "…";
   $("inviteBtn").hidden =
     r.owner !== device.code || (r.kind === "direct" && r.peers.length >= 2);
+  updateSend();
   renderThread(r);
 }
 function displayRoom(r) {
@@ -871,22 +866,34 @@ function displayRoom(r) {
     ? r.msgs.find((m) => m.code !== device.code)?.name || r.label
     : r.label;
 }
+function avatar(style) {
+  const a = el("span", "avatar " + style);
+  a.setAttribute("aria-hidden", "true");
+  return a;
+}
+function clock(t) {
+  return new Date(t).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 let threadVersion = "";
 function renderThread(r) {
-  const v =
-    r.id +
-    ":" +
-    r.msgs.length +
-    ":" +
-    (r.msgs.at(-1)?.seq || 0) +
-    ":" +
-    r.peers.map((p) => p.badge).join("");
+  const v = [
+    r.id,
+    r.msgs.length,
+    r.msgs.at(-1)?.seq,
+    r.peers.length,
+    r.peers.map((p) => p.badge).join(""),
+  ].join(":");
   if (threadVersion === v) return;
+  const changedRoom = !threadVersion.startsWith(r.id + ":");
   threadVersion = v;
   const thread = $("thread"),
     atBottom =
       thread.scrollHeight - thread.scrollTop - thread.clientHeight < 90;
   thread.replaceChildren();
+  let day = "";
   if (!r.msgs.length)
     thread.append(
       el(
@@ -898,26 +905,43 @@ function renderThread(r) {
       ),
     );
   for (const m of r.msgs) {
+    const dt = new Date(m.created),
+      date = dt.toDateString();
+    if (date !== day) {
+      thread.append(
+        el(
+          "div",
+          "date-pill",
+          dt.toLocaleDateString([], { month: "long", day: "numeric" }),
+        ),
+      );
+      day = date;
+    }
     const own = m.code === device.code,
-      n = el("div", "msg" + (own ? " own" : "")),
-      meta = el("div", "meta", own ? "You" : m.name);
-    if (r.peers.find((p) => p.code === m.code)?.badge) meta.append(badge());
-    meta.append(
-      el(
-        "time",
-        null,
-        new Date(m.created).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      ),
-    );
-    n.append(meta, el("p", "bubble", m.text));
-    thread.append(n);
+      row = el("div", "msg" + (own ? " own" : "")),
+      body = el("div", "message-body");
+    if (!own) {
+      row.append(avatar("noir"));
+      const meta = el("span", "meta", m.name);
+      if (r.peers.some((p) => p.code === m.code && p.badge))
+        meta.append(badge());
+      body.append(meta);
+    }
+    const foot = el("span", "meta-foot");
+    foot.append(el("time", null, clock(m.created)));
+    if (own) {
+      const sent = icon("circle-check");
+      sent.title = "Sent to room";
+      foot.append(sent);
+    }
+    body.append(el("p", "bubble", m.text), foot);
+    row.append(body);
+    thread.append(row);
   }
-  if (atBottom || r.msgs.at(-1)?.code === device.code)
+  if (changedRoom || atBottom || r.msgs.at(-1)?.code === device.code)
     thread.scrollTop = thread.scrollHeight;
 }
+
 async function poll() {
   clearTimeout(timer);
   if (!token) return;
@@ -1004,10 +1028,33 @@ async function poll() {
       token = "";
       rooms.clear();
       current = "";
-      $("workspace").hidden = true;
-      $("entry").hidden = false;
-      $("topName").textContent = "Your identity";
       device = null;
+      after = 0;
+      invites.clear();
+      filter = "all";
+      workspaceVersion = "";
+      threadVersion = "";
+      $("thread").replaceChildren();
+      $("draft").value = "";
+      $("roomTitle").textContent = "";
+      $("roomSub").textContent = "";
+      $("roomList").replaceChildren();
+      $("invitations").replaceChildren();
+      $("invitations").hidden = true;
+      $("starterRows").hidden = false;
+      $("listTitle").textContent = "Messages";
+      $("listCaption").textContent = "Start a conversation";
+      $("emptyCopy").textContent =
+        "Choose a name to start messaging privately.";
+      $("inviteDot").hidden = true;
+      $("findRoom").value = "";
+      $("name").value = saved?.name || "";
+      $("orbitName").textContent = "My identity";
+      $("selfDot").hidden = true;
+      $("profileTop").setAttribute("aria-label", "Your identity");
+      $("begin").hidden = false;
+      if ($("modal").open) close();
+      startIdentity();
       $("entryError").textContent = e.message;
       return;
     }
@@ -1032,9 +1079,9 @@ $("composer").onsubmit = async (e) => {
   const r = rooms.get(current),
     draft = $("draft"),
     text = draft.value.trim();
-  if (!r || !text) return;
-  const btn = $("composer").querySelector(".send");
-  btn.disabled = true;
+  if (!r || !text || r.sending) return;
+  r.sending = true;
+  updateSend();
   try {
     await api("send", {
       room: r.id,
@@ -1046,66 +1093,177 @@ $("composer").onsubmit = async (e) => {
   } catch (err) {
     toast(err.message);
   } finally {
-    btn.disabled = false;
-    draft.focus();
+    r.sending = false;
+    updateSend();
+    if (current === r.id) draft.focus();
   }
 };
-$("quickCopy").onclick = () => device && copy(device.code);
-$("privacy").onclick = privacy;
-$("profileTop").onclick = profile;
-$("identityCard").onclick = profile;
-$("newChat").onclick = newConversation;
-$("leaveBtn").onclick = confirmLeave;
-$("inviteBtn").onclick = () => inviteDialog(rooms.get(current));
-document
-  .querySelectorAll("[data-action]")
-  .forEach(
-    (b) =>
-      (b.onclick = () =>
-        ({ inbox: () => openRoom(""), new: newConversation, profile, privacy })[
-          b.dataset.action
-        ]()),
-  );
-document.querySelectorAll("[data-filter]").forEach(
-  (b) =>
-    (b.onclick = () => {
-      filter = b.dataset.filter;
-      document
-        .querySelectorAll("[data-filter]")
-        .forEach((x) => x.classList.toggle("active", x === b));
-      render();
-    }),
-);
-$("emojiBtn").onclick = () => {
-  const d = dialog("Choose emoji", "smile"),
-    g = el("div", "emoji-grid");
-  for (const e of [
-    "🙂",
-    "👋",
-    "💜",
-    "✨",
-    "👍",
-    "🎉",
-    "🤍",
-    "😂",
-    "🙌",
-    "🌙",
-    "💬",
-    "🔥",
-  ])
-    g.append(
-      button(
-        e,
-        () => {
-          if ($("draft").value.length < 1498) $("draft").value += e;
-          close();
-          $("draft").focus();
-        },
-        "",
+function hideMenus() {
+  $("inboxMenu").hidden = true;
+  $("menuToggle").setAttribute("aria-expanded", "false");
+}
+function startIdentity(next = "") {
+  deferredAction = next;
+  $("entry").hidden = false;
+  $("emptyChat").hidden = true;
+  $("roomPanel").hidden = true;
+  $("workspace").classList.add("entry-open");
+  $("name").focus();
+}
+function guestsInbox() {
+  deferredAction = "";
+  $("entry").hidden = true;
+  $("emptyChat").hidden = false;
+  $("workspace").classList.remove("entry-open", "chat-open");
+}
+function chooseFilter(value) {
+  filter = value;
+  $("findRoom").value = "";
+  $("searchRow").hidden = true;
+  $("searchToggle").setAttribute("aria-expanded", "false");
+  document
+    .querySelectorAll(".rail-dock button")
+    .forEach((b) =>
+      b.classList.toggle(
+        "nav-current",
+        b.dataset.action === (value === "discussion" ? "discussions" : "inbox"),
       ),
     );
-  d.append(g);
+  openRoom("");
+  render();
+}
+function showInvitations() {
+  const d = dialog("Invitations", "bell");
+  if (!invites.size)
+    d.append(el("p", "modal-copy", "New room invitations will appear here."));
+  for (const [id, v] of invites)
+    d.append(
+      option(v.fromName || "Room invitation", v.label, "user-plus", () =>
+        offer(v, id),
+      ),
+    );
+}
+function roomDetails() {
+  const r = rooms.get(current);
+  if (!r) return;
+  const d = dialog(displayRoom(r), r.kind === "direct" ? "message" : "users");
+  d.append(
+    el(
+      "p",
+      "modal-copy",
+      (r.peers.length || 1) +
+        " in room. Leaving closes this conversation for everyone.",
+    ),
+  );
+  if (!$("inviteBtn").hidden)
+    d.append(
+      option(
+        "Invite someone",
+        "Send a person-code or one-use invitation.",
+        "user-plus",
+        () => inviteDialog(r),
+      ),
+    );
+  d.append(
+    option(
+      "Leave room",
+      "End the conversation for every member.",
+      "exit",
+      confirmLeave,
+    ),
+  );
+}
+function runAction(action) {
+  hideMenus();
+  if (action === "privacy") {
+    privacy();
+    return;
+  }
+  if (action === "inbox") {
+    if (device) chooseFilter("all");
+    else guestsInbox();
+    return;
+  }
+  if (!device) {
+    startIdentity(action === "enter" ? "" : action);
+    return;
+  }
+  const handlers = {
+    new: newConversation,
+    direct: () => composeNew("direct"),
+    group: () => composeNew("discussion"),
+    join: pasteInvite,
+    profile,
+    code: () => copy(device.code),
+    directs: () => chooseFilter("direct"),
+    discussions: () => chooseFilter("discussion"),
+    invitations: showInvitations,
+    "room-actions": roomDetails,
+  };
+  handlers[action]?.();
+}
+function updateSend() {
+  $("composer").querySelector(".send").disabled =
+    !current || !!rooms.get(current)?.sending || !$("draft").value.trim();
+}
+$("draft").oninput = updateSend;
+$("profileTop").onclick = () => runAction("profile");
+$("leaveBtn").onclick = confirmLeave;
+$("roomInfo").onclick = roomDetails;
+$("inviteBtn").onclick = () => inviteDialog(rooms.get(current));
+$("searchToggle").onclick = () => {
+  hideMenus();
+  $("searchRow").hidden = !$("searchRow").hidden;
+  $("searchToggle").setAttribute(
+    "aria-expanded",
+    String(!$("searchRow").hidden),
+  );
+  if (!$("searchRow").hidden) $("findRoom").focus();
+  else {
+    $("findRoom").value = "";
+    renderSearch();
+  }
 };
+function renderSearch() {
+  if (device) {
+    render();
+    return;
+  }
+  const term = $("findRoom").value.trim().toLowerCase();
+  const rows = [...$("starterRows").children];
+  for (const row of rows)
+    row.hidden = !!term && !row.textContent.toLowerCase().includes(term);
+  $("roomList").replaceChildren();
+  if (rows.every((row) => row.hidden))
+    $("roomList").append(el("p", "side-empty", "No matching actions."));
+}
+$("findRoom").oninput = renderSearch;
+$("clearSearch").onclick = () => {
+  $("searchRow").hidden = true;
+  $("findRoom").value = "";
+  $("searchToggle").setAttribute("aria-expanded", "false");
+  renderSearch();
+  $("searchToggle").focus();
+};
+$("menuToggle").onclick = () => {
+  const open = $("inboxMenu").hidden;
+  $("inboxMenu").hidden = !open;
+  $("menuToggle").setAttribute("aria-expanded", String(open));
+  if (open) $("inboxMenu").querySelector("button").focus();
+};
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#menuToggle,#inboxMenu")) hideMenus();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("inboxMenu").hidden) {
+    hideMenus();
+    $("menuToggle").focus();
+  }
+});
+document
+  .querySelectorAll("[data-action]")
+  .forEach((b) => (b.onclick = () => runAction(b.dataset.action)));
+
 window.addEventListener("pagehide", () => {
   if (token)
     fetch("/api/disconnect", {

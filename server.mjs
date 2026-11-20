@@ -12,7 +12,8 @@ const assets = new Map([
   ["/app.js", "app.js"],
   ["/crypto.js", "crypto.js"],
   ["/style.css", "style.css"],
-  ["/room-art.webp", "room-art.webp"],
+  ["/avatars.webp", "avatars.webp"],
+  ["/lucide.svg", "lucide.svg"],
   ["/mark.svg", "mark.svg"],
 ]);
 const mime = {

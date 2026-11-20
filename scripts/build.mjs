@@ -6,7 +6,8 @@ const files = {
   "app.js": "text/javascript",
   "crypto.js": "text/javascript",
   "style.css": "text/css",
-  "room-art.webp": "image/webp",
+  "avatars.webp": "image/webp",
+  "lucide.svg": "image/svg+xml",
   "mark.svg": "image/svg+xml",
 };
 const assets = {};

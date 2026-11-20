@@ -12,7 +12,7 @@ cd Prichat
 npm start
 ```
 
-Open **http://127.0.0.1:5173**. For a two-person test on one PC, open two tabs with different temporary names. In one tab select your name and **Copy person code**. In the other select **New conversation → Message a person** and paste the code. Accept the invitation in the first tab. You can also create a discussion and send a single-use invite link. Use an HTTPS address when testing across devices. Browser cryptography requires a secure context.
+Open **http://127.0.0.1:5173**. For a two-person test on one PC, open two tabs with different temporary names. In one tab open your avatar and click your person code to copy it. In the other select **Message a person** and paste the code. Accept the invitation in the first tab. You can also create a discussion and send a single-use invite link. Use an HTTPS address when testing across devices. Browser cryptography requires a secure context.
 
 ## Rooms and identities
 
@@ -86,3 +86,4 @@ npm run validate
 
 Contributions are welcome under the MIT license. For security issues, contact the repository owner privately before publishing sensitive details.
 
+Interface icons are bundled from Lucide 0.468.0. See [the Lucide license](licenses/lucide.txt).

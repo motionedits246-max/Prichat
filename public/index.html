@@ -4,208 +4,304 @@
     <meta charset="utf-8" />
     <meta
       name="viewport"
-      content="width=device-width,initial-scale=1,viewport-fit=cover"
+      content="width=device-width, initial-scale=1,viewport-fit=cover"
     />
-    <meta name="theme-color" content="#101115" />
+    <meta name="theme-color" content="#070809" />
     <meta
       name="description"
-      content="Create a person code and meet in temporary private rooms."
+      content="Private temporary conversations with no-signup person codes."
     />
-    <title>PriChat — Private rooms</title>
+    <title>PriChat — Messages</title>
     <link rel="icon" href="/mark.svg" />
     <link rel="stylesheet" href="/style.css" />
-    <script type="module" src="/app.js"></script>
+    <script src="/app.js" type="module"></script>
   </head>
   <body>
-    <header class="top">
-      <a class="brand" href="/" aria-label="PriChat home"
-        ><img src="/mark.svg" alt="" />PriChat</a
-      >
-      <div class="top-actions">
-        <button id="privacy" class="quiet">
-          <i data-icon="shield"></i> Privacy</button
-        ><span class="top-line"></span
-        ><button id="profileTop" class="quiet">
-          <i data-icon="fingerprint"></i><span id="topName">Your identity</span>
-        </button>
-      </div>
-    </header>
-    <main id="entry" class="entry">
-      <div class="welcome-grid">
-        <section class="form-side">
-          <div class="overline">
-            <span class="short-line"></span> PRIVATE MESSENGER
+    <main id="workspace" class="workspace">
+      <nav class="rail" aria-label="Workspace">
+        <div class="rail-start">
+          <button
+            class="brand-glyph"
+            data-action="inbox"
+            aria-label="PriChat home"
+          >
+            <i data-icon="message"></i>
+          </button>
+          <button
+            class="compose-key"
+            data-action="new"
+            aria-label="New conversation"
+            title="New conversation"
+          >
+            <i data-icon="pencil"></i>
+          </button>
+        </div>
+        <div class="rail-dock">
+          <button
+            data-action="inbox"
+            class="nav-current"
+            aria-label="Messages"
+            title="Messages"
+          >
+            <i data-icon="message"></i>
+          </button>
+          <button
+            data-action="discussions"
+            aria-label="Discussions"
+            title="Discussions"
+          >
+            <i data-icon="users"></i>
+          </button>
+          <button
+            data-action="invitations"
+            aria-label="Invitations"
+            title="Invitations"
+          >
+            <i data-icon="bell"></i>
+            <span id="inviteDot" hidden></span>
+          </button>
+          <button data-action="privacy" aria-label="Privacy" title="Privacy">
+            <i data-icon="shield"></i>
+          </button>
+          <button
+            data-action="profile"
+            aria-label="Profile settings"
+            title="Profile settings"
+          >
+            <i data-icon="settings"></i>
+          </button>
+        </div>
+      </nav>
+      <aside class="sidebar" aria-label="Conversation sidebar">
+        <header class="sidebar-tools">
+          <button
+            id="profileTop"
+            class="round profile-top"
+            aria-label="Your identity"
+            title="Your identity"
+          >
+            <span class="avatar noir"></span>
+            <span class="online-dot" id="selfDot" hidden></span>
+          </button>
+          <button class="brand-pill" data-action="inbox">
+            <i data-icon="message"></i>
+            PriChat
+          </button>
+          <button
+            class="round"
+            id="searchToggle"
+            aria-label="Search conversations"
+            title="Search conversations"
+            aria-expanded="false"
+            aria-controls="searchRow"
+          >
+            <i data-icon="search"></i>
+          </button>
+          <button
+            class="round"
+            id="menuToggle"
+            aria-label="Inbox options"
+            title="Inbox options"
+            aria-expanded="false"
+            aria-controls="inboxMenu"
+          >
+            <i data-icon="chevron-down"></i>
+          </button>
+        </header>
+        <div class="popover" id="inboxMenu" hidden>
+          <button data-action="new">
+            <i data-icon="square-pen"></i>
+            New conversation
+          </button>
+          <button data-action="inbox">
+            <i data-icon="message"></i>
+            All messages
+          </button>
+          <button data-action="directs">
+            <i data-icon="user"></i>
+            Direct chats
+          </button>
+          <button data-action="discussions">
+            <i data-icon="users"></i>
+            Discussions
+          </button>
+          <button data-action="code">
+            <i data-icon="copy"></i>
+            My person code
+          </button>
+          <button data-action="privacy">
+            <i data-icon="shield"></i>
+            Privacy
+          </button>
+        </div>
+        <div id="searchRow" class="search-row" hidden>
+          <i data-icon="search"></i>
+          <input
+            id="findRoom"
+            type="search"
+            autocomplete="off"
+            placeholder="Search conversations"
+            aria-label="Search by room name or message"
+          />
+          <button class="mini-icon" id="clearSearch" aria-label="Close search">
+            <i data-icon="x"></i>
+          </button>
+        </div>
+        <div class="orbit-strip" aria-label="Room shortcuts">
+          <button class="orbit" data-action="profile">
+            <span class="orbit-face">
+              <span class="avatar noir"></span>
+              <span class="orbit-marker"><i data-icon="user"></i></span>
+            </span>
+            <span id="orbitName">My identity</span>
+          </button>
+          <button class="orbit" data-action="direct">
+            <span class="orbit-face blue-ring">
+              <span class="avatar azure"></span>
+            </span>
+            <span>Direct chat</span>
+          </button>
+          <button class="orbit" data-action="group">
+            <span class="orbit-face violet-ring">
+              <span class="avatar violet"></span>
+            </span>
+            <span>Discussion</span>
+          </button>
+        </div>
+        <div class="inbox-title">
+          <h1 id="listTitle">Messages</h1>
+          <p id="listCaption">Start a conversation</p>
+        </div>
+        <div id="invitations" hidden></div>
+        <div class="list-scroll">
+          <div id="roomList" class="room-list"></div>
+          <div id="starterRows" class="room-list">
+            <button class="room-row" data-action="direct">
+              <span class="list-face starter-face">
+                <span class="avatar azure"></span>
+                <i data-icon="message"></i>
+              </span>
+              <span class="details">
+                <strong>Message a person</strong>
+                <small>Connect with a person code</small>
+              </span>
+              <i data-icon="chevron-right"></i>
+            </button>
+            <button class="room-row" data-action="group">
+              <span class="list-face starter-face">
+                <span class="avatar violet"></span>
+                <i data-icon="users"></i>
+              </span>
+              <span class="details">
+                <strong>Create a discussion</strong>
+                <small>Open a private group room</small>
+              </span>
+              <i data-icon="chevron-right"></i>
+            </button>
+            <button class="room-row" data-action="join">
+              <span class="list-face starter-face">
+                <span class="avatar noir"></span>
+                <i data-icon="link"></i>
+              </span>
+              <span class="details">
+                <strong>Join with a link</strong>
+                <small>Open a one-use room invitation</small>
+              </span>
+              <i data-icon="chevron-right"></i>
+            </button>
           </div>
-          <h1>A space to<br /><em>talk freely.</em></h1>
-          <p class="intro">
-            Pick a name to start a private conversation. Your person code is all
-            you need to connect.
-          </p>
+        </div>
+      </aside>
+      <section class="conversation" id="conversation" aria-label="Conversation">
+        <div id="emptyChat" class="empty-chat">
+          <div class="empty-mark"><i data-icon="message"></i></div>
+          <h2>
+            PriChat
+            <span class="desktop-text">for desktop</span>
+          </h2>
+          <p id="emptyCopy">Choose a name to start messaging privately.</p>
+          <button data-action="enter" class="primary compact" id="begin">
+            Choose a name
+          </button>
+        </div>
+        <section id="entry" class="entry" hidden>
           <form id="identityForm">
-            <label for="name">Display name</label>
-            <div class="field-wrap">
-              <i data-icon="user"></i
-              ><input
-                id="name"
-                name="name"
-                placeholder="What should we call you?"
-                required
-                maxlength="32"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </div>
-            <fieldset class="identity-options">
-              <legend>Identity duration</legend>
-              <label class="choice"
-                ><input type="radio" name="mode" value="temporary" checked /><i
-                  data-icon="hourglass"
-                ></i
-                ><span>Temporary</span></label
-              ><label class="choice"
-                ><input type="radio" name="mode" value="saved" /><i
-                  data-icon="bookmark"
-                ></i
-                ><span>Keep on device</span></label
+            <div class="entry-head">
+              <span class="portrait-lg avatar noir"></span>
+              <button
+                type="button"
+                class="round small"
+                data-action="inbox"
+                aria-label="Back to messages"
               >
+                <i data-icon="x"></i>
+              </button>
+            </div>
+            <h2>Your identity</h2>
+            <p class="muted">Choose the name people see in your chats.</p>
+            <label class="field-label" for="name">Display name</label>
+            <input
+              class="text-input"
+              id="name"
+              placeholder="Your name"
+              required
+              maxlength="32"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <fieldset class="choices">
+              <legend class="sr-only">Identity duration</legend>
+              <label>
+                <input type="radio" name="mode" value="temporary" checked />
+                <i data-icon="hourglass"></i>
+                Temporary
+              </label>
+              <label>
+                <input type="radio" name="mode" value="saved" />
+                <i data-icon="bookmark"></i>
+                Keep on device
+              </label>
             </fieldset>
             <p class="helper" id="modeHint">
-              Your person code expires when you leave this session.
+              Your person code lasts for this session.
             </p>
-            <button class="primary" id="enterBtn" type="submit">
-              <i data-icon="fingerprint"></i><span>Create my person code</span>
+            <button class="primary" id="enterBtn">
+              <span>Create my person code</span>
             </button>
             <p class="form-error" id="entryError" role="alert"></p>
           </form>
         </section>
-        <aside class="preview-card" aria-label="Illustrated room preview">
-          <div class="preview-top">
-            <span><i data-icon="layers"></i> Room preview</span
-            ><span class="preview-state"><b></b>Temporary</span>
-          </div>
-          <div class="art-wrap">
-            <img
-              src="/room-art.webp"
-              alt=""
-              class="room-art"
-              width="900"
-              height="585"
-            />
-          </div>
-          <div class="sample-lines">
-            <div class="sample-row">
-              <div class="av sample-av">R</div>
-              <div>
-                <span class="sample-name">River</span>
-                <p class="bubble">Made it into the room.</p>
-              </div>
-            </div>
-            <div class="sample-row sent">
-              <div>
-                <span class="sample-name">You</span>
-                <p class="bubble">
-                  Just us here. <span aria-hidden="true">✧</span>
-                </p>
-              </div>
-            </div>
-          </div>
-          <div class="preview-foot">
-            <i data-icon="lock"></i> Leaving closes the room for everyone.
-          </div>
-        </aside>
-      </div>
-      <footer class="entry-foot">
-        <span><i data-icon="code"></i> Open source</span><b></b
-        ><span><i data-icon="user-x"></i> No signup</span><b></b
-        ><span><i data-icon="timer"></i> Temporary rooms</span>
-      </footer>
-    </main>
-    <main id="workspace" class="workspace" hidden>
-      <nav class="rail" aria-label="Workspace">
-        <button
-          data-action="inbox"
-          title="Conversations"
-          aria-label="Conversations"
-        >
-          <i data-icon="message"></i></button
-        ><button
-          data-action="new"
-          title="New conversation"
-          aria-label="New conversation"
-        >
-          <i data-icon="square-pen"></i></button
-        ><button
-          data-action="profile"
-          title="Your identity"
-          aria-label="Your identity"
-        >
-          <i data-icon="fingerprint"></i></button
-        ><button
-          data-action="privacy"
-          title="Privacy details"
-          aria-label="Privacy details"
-        >
-          <i data-icon="shield"></i>
-        </button>
-      </nav>
-      <aside class="sidebar">
-        <div class="side-head">
-          <div class="overline">WORKSPACE</div>
-          <div class="row">
-            <h2>Messages</h2>
-            <button class="iconbtn" id="newChat" aria-label="New conversation">
-              <i data-icon="plus"></i>
-            </button>
-          </div>
-        </div>
-        <div class="filters" aria-label="Conversation type">
-          <button data-filter="all" class="active">All</button
-          ><button data-filter="direct">Direct</button
-          ><button data-filter="discussion">Discussions</button>
-        </div>
-        <section class="code-strip">
-          <span>Your person code</span
-          ><button id="quickCopy" aria-label="Copy your person code">
-            <code id="quickCode"></code><i data-icon="copy"></i>
-          </button>
-        </section>
-        <div id="invitations"></div>
-        <div id="roomList" class="room-list"></div>
-        <button class="identity-card" id="identityCard"></button>
-      </aside>
-      <section class="conversation" id="conversation">
-        <div id="emptyChat" class="empty-chat">
-          <img src="/room-art.webp" alt="" />
-          <h2>Your conversations</h2>
-          <p>Start a room or invite someone by person code.</p>
-          <button class="primary" data-action="new">
-            <i data-icon="plus"></i>New conversation
-          </button>
-        </div>
         <div id="roomPanel" class="room-panel" hidden>
           <header class="room-head">
             <button
-              class="iconbtn back"
+              class="round"
               data-action="inbox"
               aria-label="Back to conversations"
             >
               <i data-icon="back"></i>
             </button>
-            <div class="room-avatar"><i data-icon="layers"></i></div>
-            <div class="heading">
-              <h2 id="roomTitle"></h2>
-              <p id="roomSub"></p>
-            </div>
+            <button
+              class="chat-contact"
+              id="roomInfo"
+              aria-label="Room details"
+            >
+              <span class="avatar azure" id="headAvatar"></span>
+              <span class="details">
+                <strong id="roomTitle"></strong>
+                <small id="roomSub"></small>
+              </span>
+            </button>
             <button
               id="inviteBtn"
-              class="iconbtn"
-              aria-label="Invite to this room"
+              class="round"
+              aria-label="Invite to room"
               title="Invite"
             >
-              <i data-icon="user-plus"></i></button
-            ><button
+              <i data-icon="user-plus"></i>
+            </button>
+            <button
               id="leaveBtn"
-              class="iconbtn"
+              class="round"
               aria-label="Close room for everyone"
               title="Leave room"
             >
@@ -218,31 +314,35 @@
             aria-label="Messages"
             id="thread"
           ></div>
-          <form class="composer" id="composer">
-            <button
-              id="emojiBtn"
-              type="button"
-              class="iconbtn"
-              aria-label="Choose emoji"
-            >
-              <i data-icon="smile"></i></button
-            ><input
-              id="draft"
-              maxlength="1500"
-              aria-label="Message"
-              autocomplete="off"
-              placeholder="Write a message…"
-            /><button class="send" aria-label="Send message">
-              <i data-icon="send"></i>
-            </button>
-          </form>
+          <div class="compose-wrap">
+            <form class="composer" id="composer">
+              <button
+                class="compose-plus"
+                type="button"
+                data-action="room-actions"
+                aria-label="Room actions"
+              >
+                <i data-icon="plus"></i>
+              </button>
+              <input
+                id="draft"
+                maxlength="1500"
+                aria-label="Message"
+                autocomplete="off"
+                placeholder="Message this room…"
+              />
+              <button class="send" aria-label="Send message" disabled>
+                <i data-icon="send"></i>
+              </button>
+            </form>
+          </div>
         </div>
       </section>
     </main>
-    <dialog id="modal">
+    <dialog id="modal" aria-labelledby="modalTitle">
       <div class="modal-top">
-        <span class="modal-icon" id="modalIcon"></span
-        ><button class="iconbtn" id="dismiss" aria-label="Close dialog">
+        <span class="modal-icon" id="modalIcon"></span>
+        <button class="round small" id="dismiss" aria-label="Close dialog">
           <i data-icon="x"></i>
         </button>
       </div>
