@@ -320,7 +320,8 @@
                 class="compose-plus"
                 type="button"
                 data-action="room-actions"
-                aria-label="Room actions"
+                aria-label="Add to chat"
+                title="Add to chat"
               >
                 <i data-icon="plus"></i>
               </button>
@@ -331,10 +332,31 @@
                 autocomplete="off"
                 placeholder="Message this room…"
               />
-              <button class="send" aria-label="Send message" disabled>
-                <i data-icon="send"></i>
+              <button
+                class="send"
+                id="sendBtn"
+                aria-label="Send message"
+                disabled
+              >
+                <span class="send-arrow"><i data-icon="send"></i></span>
+                <span class="send-check"><i data-icon="check"></i></span>
+                <span class="send-error">
+                  <i data-icon="triangle-alert"></i>
+                </span>
+                <progress
+                  id="sendProgress"
+                  max="1"
+                  aria-hidden="true"
+                  hidden
+                ></progress>
               </button>
             </form>
+            <span
+              class="sr-only"
+              role="status"
+              aria-live="polite"
+              id="sendStatus"
+            ></span>
           </div>
         </div>
       </section>

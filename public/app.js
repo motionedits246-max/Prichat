@@ -1,3 +1,17 @@
+import { shareMenu } from "./share.js";
+import {
+  parseActivity,
+  applyActivity,
+  describe,
+  activityCard,
+} from "./activities.js";
+import {
+  profilePhoto,
+  validPhoto,
+  uploadFile,
+  downloadFile,
+  mediaTag,
+} from "./media.js";
 import {
   makeDevice,
   verifyRecipient,
@@ -72,9 +86,16 @@ function errorNotice(e) {
     n.textContent = msg;
   } else toast(msg);
 }
+let dialogCleanup = null;
+function clearDialogResources() {
+  dialogCleanup?.();
+  dialogCleanup = null;
+}
 function dialog(title, glyph) {
+  clearDialogResources();
   const d = $("modal");
-  d.classList.remove("profile-sheet");
+  d.classList.remove("profile-sheet", "activity-sheet", "share-sheet");
+  $("modalBody").classList.remove("media-detail");
   $("modalTitle").textContent = title;
   d.setAttribute("aria-labelledby", "modalTitle");
   $("modalIcon").replaceChildren(icon(glyph));
@@ -84,7 +105,10 @@ function dialog(title, glyph) {
 }
 const close = () => $("modal").close();
 $("modal").addEventListener("close", () => {
-  if (!$("modal").open) $("modalBody").replaceChildren();
+  if (!$("modal").open) {
+    clearDialogResources();
+    $("modalBody").replaceChildren();
+  }
 });
 $("dismiss").onclick = close;
 function field(label, placeholder, max = 128) {
@@ -152,6 +176,7 @@ function idb(mode, task) {
     };
   });
 }
+let myPhoto = "";
 let saved = null,
   device = null,
   token = "",
@@ -230,11 +255,11 @@ function privacy() {
   for (const [h, t] of [
     [
       "What the relay can see",
-      "Person codes, active connection counts, coarse activity, room membership, timing and encrypted packet sizes. Display names travel inside encrypted messages and invites.",
+      "Person codes, active connection counts, coarse activity, room membership, timing and encrypted packet sizes. Display names, shared profile pictures, filenames and activity contents travel inside encrypted messages or invitations. Attachment sizes and transfer timing are visible.",
     ],
     [
       "What stays on your device",
-      "Room keys and readable messages live in your tab. Keeping an identity saves its name and device keys in this browser. Screenshots and copies are possible.",
+      "Room keys and readable messages live in your tab. A saved identity keeps its name, picture and keys in this browser. Downloaded files and screenshots can outlast the room.",
     ],
     [
       "Hosting and deletion",
@@ -316,15 +341,19 @@ $("identityForm").onsubmit = async (e) => {
     if (keep) {
       try {
         await idb("readwrite", (s) =>
-          s.put({ device: identity, name: alias }, "current"),
+          s.put(
+            { device: identity, name: alias, photo: saved?.photo || "" },
+            "current",
+          ),
         );
         await api("save", {}, result.token);
       } catch (err) {
         await api("disconnect", {}, result.token).catch(() => {});
         throw err;
       }
-      saved = { device: identity, name: alias };
+      saved = { device: identity, name: alias, photo: saved?.photo || "" };
     }
+    myPhoto = keep && validPhoto(saved?.photo) ? saved.photo : "";
     name = alias;
     device = identity;
     token = result.token;
@@ -363,6 +392,9 @@ function roomState(inv) {
     owner: inv.owner || "",
     peers: [],
     msgs: [],
+    photos: new Map(),
+    cards: new Map(),
+    revision: 0,
     seen: new Set(),
     draft: "",
     expires: Date.now() + 3600000,
@@ -617,7 +649,8 @@ function offer(inv, id) {
 function profile() {
   const d = dialog(name, "fingerprint");
   $("modal").classList.add("profile-sheet");
-  $("modalIcon").replaceChildren(avatar("noir"));
+  $("modalIcon").replaceChildren(avatar("noir", myPhoto));
+  d.append(button("Edit profile picture", editPhoto, "card-action edit-photo"));
   if (days >= 3) $("modalTitle").append(badge());
   d.append(
     el("p", "info-text", keep ? "Saved on this device" : "Temporary identity"),
@@ -659,9 +692,11 @@ function profile() {
           throw Error(
             "This browser already has a saved identity. Open and forget it before saving another.",
           );
-        await idb("readwrite", (s) => s.put({ device, name }, "current"));
+        await idb("readwrite", (s) =>
+          s.put({ device, name, photo: myPhoto }, "current"),
+        );
         await api("save");
-        saved = { device, name };
+        saved = { device, name, photo: myPhoto };
         keep = true;
         days = 0;
         render();
@@ -754,6 +789,7 @@ function render() {
       r.id,
       r.owner,
       r.peers.map((p) => [p.code, p.badge]),
+      r.revision,
       r.msgs.length,
       r.msgs.at(-1)?.seq,
     ]),
@@ -761,6 +797,7 @@ function render() {
   ]);
   if (version === workspaceVersion) return;
   workspaceVersion = version;
+  for (const node of ownAvatarNodes()) paintPhoto(node, myPhoto);
   $("selfDot").hidden = false;
   $("profileTop").setAttribute("aria-label", "Your identity: " + name);
   $("orbitName").textContent = name;
@@ -808,7 +845,7 @@ function render() {
       "room-row" + (r.id === current ? " selected" : ""),
     );
     const wrap = el("span", "list-face");
-    wrap.append(avatar(r.kind === "direct" ? "noir" : "violet"));
+    wrap.append(avatar(r.kind === "direct" ? "azure" : "violet", peerPhoto(r)));
     const details = el("span", "details"),
       title = el("strong", null, displayRoom(r)),
       last = r.msgs.at(-1);
@@ -854,7 +891,8 @@ function render() {
   $("roomTitle").textContent = displayRoom(r);
   $("roomSub").textContent = (r.peers.length || 1) + " in room · Temporary";
   $("headAvatar").className =
-    "avatar " + (r.kind === "direct" ? "noir" : "violet");
+    "avatar " + (r.kind === "direct" ? "azure" : "violet");
+  paintPhoto($("headAvatar"), peerPhoto(r));
   $("draft").placeholder = "Message " + displayRoom(r) + "…";
   $("inviteBtn").hidden =
     r.owner !== device.code || (r.kind === "direct" && r.peers.length >= 2);
@@ -866,9 +904,10 @@ function displayRoom(r) {
     ? r.msgs.find((m) => m.code !== device.code)?.name || r.label
     : r.label;
 }
-function avatar(style) {
+function avatar(style, photo = "") {
   const a = el("span", "avatar " + style);
   a.setAttribute("aria-hidden", "true");
+  paintPhoto(a, photo);
   return a;
 }
 function clock(t) {
@@ -881,6 +920,7 @@ let threadVersion = "";
 function renderThread(r) {
   const v = [
     r.id,
+    r.revision,
     r.msgs.length,
     r.msgs.at(-1)?.seq,
     r.peers.length,
@@ -921,7 +961,7 @@ function renderThread(r) {
       row = el("div", "msg" + (own ? " own" : "")),
       body = el("div", "message-body");
     if (!own) {
-      row.append(avatar("noir"));
+      row.append(avatar("noir", roomPhoto(r, m.code)));
       const meta = el("span", "meta", m.name);
       if (r.peers.some((p) => p.code === m.code && p.badge))
         meta.append(badge());
@@ -934,7 +974,17 @@ function renderThread(r) {
       sent.title = "Sent to room";
       foot.append(sent);
     }
-    body.append(el("p", "bubble", m.text), foot);
+    const content = m.activity
+      ? activityCard(m, {
+          el,
+          icon,
+          button,
+          self: device.code,
+          send: (a) => sendContent(r, a),
+          openFile: (f) => openFile(r, f),
+        })
+      : el("p", "bubble", m.text);
+    body.append(content, foot);
     row.append(body);
     thread.append(row);
   }
@@ -994,19 +1044,32 @@ async function poll() {
         )
           continue;
         r.seen.add(e.packet.slice(-86));
-        r.msgs.push({
+        const activity = v.activity ? parseActivity(v.activity) : null;
+        if (v.activity && !activity) continue;
+        const message = {
           seq: e.seq,
           name: v.name.slice(0, 32),
           code: p.code,
-          text: v.text,
+          text: activity ? describe(activity) : v.text,
           created: e.created,
-        });
-        if (r.msgs.length > 500) {
-          r.msgs.shift();
+          activity,
+        };
+        if (
+          typeof v.photo === "string" &&
+          (v.photo === "" || validPhoto(v.photo)) &&
+          r.photos.get(p.code) !== v.photo
+        ) {
+          r.photos.set(p.code, v.photo);
+          r.revision++;
         }
-      } catch {
-        /* Drop invalid or unauthenticated packets. */
-      }
+        if (!applyActivity(r, message)) continue;
+        r.msgs.push(message);
+        if (r.msgs.length > 500) {
+          const old = r.msgs.shift();
+          if (old.activity?.type === "game" || old.activity?.type === "poll")
+            r.cards.delete(old.activity.id);
+        }
+      } catch {}
     }
     const incoming = new Set(data.invites.map((i) => i.id));
     for (const id of invites.keys()) if (!incoming.has(id)) invites.delete(id);
@@ -1029,6 +1092,8 @@ async function poll() {
       rooms.clear();
       current = "";
       device = null;
+      myPhoto = "";
+      for (const node of ownAvatarNodes()) paintPhoto(node, "");
       after = 0;
       invites.clear();
       filter = "all";
@@ -1074,30 +1139,243 @@ async function poll() {
     if (token) timer = setTimeout(poll, document.hidden ? 5000 : 1500);
   }
 }
+function ownAvatarNodes() {
+  return document.querySelectorAll(
+    "#profileTop .avatar,.orbit[data-action=profile] .avatar,.entry .portrait-lg",
+  );
+}
+function paintPhoto(el, photo) {
+  const old = el.querySelector("img");
+  if (!validPhoto(photo)) {
+    old?.remove();
+    return;
+  }
+  if (old?.getAttribute("src") === photo) return;
+  const img = document.createElement("img");
+  img.alt = "";
+  img.src = photo;
+  el.replaceChildren(img);
+}
+function roomPhoto(r, code) {
+  return code === device?.code ? myPhoto : r.photos.get(code) || "";
+}
+function peerPhoto(r) {
+  const peer = r.peers.find((p) => p.code !== device?.code);
+  return r.kind === "direct" && peer ? roomPhoto(r, peer.code) : "";
+}
+function editPhoto() {
+  const d = dialog("Profile picture", "camera");
+  const wrap = el("div", "picture-editor"),
+    photo = avatar("noir", myPhoto);
+  let chosen = myPhoto,
+    reading = false;
+  const picker = el("label", "photo-pick", "Choose picture"),
+    input = el("input");
+  input.type = "file";
+  input.accept = "image/png,image/jpeg,image/webp,image/gif";
+  picker.append(input);
+  const label = el(
+    "p",
+    "helper",
+    "Your picture is resized on this device and shared with your next room message.",
+  );
+  const save = button(
+    "Save picture",
+    async () => {
+      if (reading) return;
+      if (keep) {
+        const record = { device, name, photo: chosen };
+        await idb("readwrite", (s) => s.put(record, "current"));
+        saved = record;
+      }
+      myPhoto = chosen;
+      for (const x of ownAvatarNodes()) paintPhoto(x, myPhoto);
+      profile();
+      toast("Profile picture updated.");
+    },
+    "primary",
+  );
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    reading = true;
+    save.disabled = true;
+    input.disabled = true;
+    try {
+      chosen = await profilePhoto(file);
+      paintPhoto(photo, chosen);
+    } catch (e) {
+      errorNotice(e);
+    } finally {
+      reading = false;
+      save.disabled = false;
+      input.disabled = false;
+    }
+  };
+  wrap.append(
+    photo,
+    picker,
+    button(
+      "Use default",
+      () => {
+        chosen = "";
+        paintPhoto(photo, "");
+      },
+      "card-action",
+    ),
+  );
+  d.append(wrap, label);
+  actions(d, save);
+}
+function setSendState(r, phase, progress = null) {
+  clearTimeout(r.sendTimer);
+  r.feedback = phase;
+  r.progress = progress;
+  if (current === r.id) updateSend();
+  if (phase === "sent" || phase === "failed")
+    r.sendTimer = setTimeout(
+      () => {
+        r.feedback = "";
+        if (current === r.id) updateSend();
+      },
+      phase === "sent" ? 1500 : 3500,
+    );
+}
+async function sendContent(
+  r,
+  activity = null,
+  file = null,
+  onProgress = null,
+  plain = "",
+) {
+  if (!device || rooms.get(r.id) !== r) throw Error("This room has closed.");
+  if (r.sending) throw Error("Wait for the current send to finish.");
+  const sender = device,
+    alias = name,
+    photo = myPhoto;
+  r.sending = true;
+  setSendState(r, "sending", file ? 0 : null);
+  try {
+    if (file) {
+      const descriptor = await uploadFile(api, r.id, file, (p) => {
+        setSendState(r, "sending", p);
+        onProgress?.(p);
+      });
+      activity = { ...activity, file: descriptor };
+    }
+    if (activity && !parseActivity(activity))
+      throw Error("Check the activity details.");
+    const text = activity ? describe(activity) : plain;
+    const packet = await packMessage(sender, r.id, r.key, {
+      name: alias,
+      text,
+      photo,
+      ...(activity ? { activity } : {}),
+    });
+    await api("send", {
+      room: r.id,
+      packet,
+      ...(file ? { file: activity.file.id } : {}),
+    });
+    setSendState(r, "sent", 1);
+    onProgress?.(1);
+    void poll();
+  } catch (err) {
+    setSendState(r, "failed");
+    throw err;
+  } finally {
+    r.sending = false;
+    if (current === r.id) updateSend();
+  }
+}
+function openActivities(kind = "", file = null) {
+  const r = rooms.get(current);
+  if (!r) return;
+  shareMenu(
+    {
+      dialog,
+      el,
+      icon,
+      button,
+      close,
+      draft: $("draft"),
+      send: sendContent,
+      alive: (room) => rooms.get(current) === room,
+      errorNotice,
+      onDismiss: (fn) => {
+        dialogCleanup = fn;
+      },
+    },
+    r,
+    kind,
+    file,
+  );
+}
+async function openFile(r, f) {
+  if (rooms.get(current) !== r) throw Error("This room has closed.");
+  const d = dialog(f.filename, mediaTag(f.mime) ? "images" : "file-text"),
+    status = el("p", "info-text", "Decrypting attachment…");
+  d.classList.add("media-detail");
+  d.append(status);
+  const marker = status;
+  try {
+    const blob = await downloadFile(api, r.id, f);
+    if (!marker.isConnected || !$("modal").open || rooms.get(current) !== r)
+      return;
+    const url = URL.createObjectURL(blob);
+    dialogCleanup = () => URL.revokeObjectURL(url);
+    status.remove();
+    const tag = mediaTag(f.mime);
+    if (tag) {
+      const viewer = el(tag, "media-viewer");
+      if (tag === "img") viewer.alt = f.filename;
+      else {
+        viewer.controls = true;
+        viewer.preload = "metadata";
+      }
+      viewer.src = url;
+      d.append(viewer);
+    }
+    const a = el("a", "secondary download-link", "Save file");
+    a.href = url;
+    a.download = f.filename.replace(/[\\/\u0000-\u001f]/g, "_") || "attachment";
+    d.append(a);
+    if (!tag) a.click();
+  } catch (err) {
+    if (marker.isConnected) {
+      marker.textContent = err.message;
+    }
+  }
+}
 $("composer").onsubmit = async (e) => {
   e.preventDefault();
   const r = rooms.get(current),
     draft = $("draft"),
-    text = draft.value.trim();
+    original = draft.value,
+    text = original.trim();
   if (!r || !text || r.sending) return;
-  r.sending = true;
-  updateSend();
   try {
-    await api("send", {
-      room: r.id,
-      packet: await packMessage(device, r.id, r.key, { name, text }),
-    });
-    if (current === r.id && draft.value.trim() === text) draft.value = "";
-    r.draft = "";
-    await poll();
+    await sendContent(r, null, null, null, text);
+    if (current === r.id && draft.value === original) draft.value = "";
+    if (r.draft === original) r.draft = "";
   } catch (err) {
     toast(err.message);
   } finally {
-    r.sending = false;
     updateSend();
-    if (current === r.id) draft.focus();
+    if (current === r.id && !document.querySelector("dialog[open]"))
+      draft.focus();
   }
 };
+document.addEventListener("paste", (e) => {
+  if (!current || $("modal").open || !$("entry").hidden) return;
+  const item = Array.from(e.clipboardData?.items || []).find(
+    (x) => x.kind === "file" && x.type.startsWith("image/"),
+  );
+  const file = item?.getAsFile();
+  if (!file) return;
+  e.preventDefault();
+  openActivities(file.type === "image/gif" ? "gif" : "photo", file);
+});
 function hideMenus() {
   $("inboxMenu").hidden = true;
   $("menuToggle").setAttribute("aria-expanded", "false");
@@ -1198,13 +1476,33 @@ function runAction(action) {
     directs: () => chooseFilter("direct"),
     discussions: () => chooseFilter("discussion"),
     invitations: showInvitations,
-    "room-actions": roomDetails,
+    "room-actions": () => openActivities(),
   };
   handlers[action]?.();
 }
 function updateSend() {
-  $("composer").querySelector(".send").disabled =
-    !current || !!rooms.get(current)?.sending || !$("draft").value.trim();
+  const r = rooms.get(current),
+    btn = $("sendBtn"),
+    p = $("sendProgress"),
+    phase = r?.feedback || "",
+    hasText = !!$("draft").value.trim();
+  btn.disabled = !r || !!r.sending || !hasText;
+  btn.dataset.phase = phase;
+  const label =
+    phase === "sending"
+      ? "Sending"
+      : phase === "sent"
+        ? "Sent to room"
+        : phase === "failed"
+          ? "Send failed"
+          : "Send message";
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
+  p.hidden = !["sending", "sent"].includes(phase);
+  if (r?.progress == null) p.removeAttribute("value");
+  else p.value = r.progress;
+  if ($("sendStatus").textContent !== label)
+    $("sendStatus").textContent = phase ? label : "";
 }
 $("draft").oninput = updateSend;
 $("profileTop").onclick = () => runAction("profile");
@@ -1288,6 +1586,7 @@ document.addEventListener("visibilitychange", () => {
   }
   if (Date.now() - lastActive > 90000) {
     rooms.clear();
+    if ($("modal").open) close();
     openRoom("");
     toast("Active rooms cleared after inactivity.");
   }

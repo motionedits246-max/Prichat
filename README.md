@@ -23,6 +23,16 @@ Open **http://127.0.0.1:5173**. For a two-person test on one PC, open two tabs w
 - Selecting **Leave and close** ends the room for everyone. A lost connection expires after 90 seconds, and a room has a one-hour lifetime. Messages are live-only. They reach active tabs through short polling and a two-minute encrypted delivery buffer. A late joiner gets no backlog from the official relay. A tab keeps up to 500 displayed messages in memory.
 - **Forget identity** removes the current profile's saved keys from this browser and deletes its live badge record. Keys from a previously lost browser profile cannot be recovered.
 
+## Sharing in a room
+
+Press **Enter** or the send arrow. The progress bar completes when the relay accepts the message. Failed text stays in the composer. File uploads report progress as encrypted parts are accepted.
+
+Open **+** to share photos, video, audio files, documents, GIFs, emoji, a contact, an event, a note, or a manually entered location. Pasting an image opens the same review step. The sticker maker crops a picture and adds an optional caption. The GIF maker combines two to eight local images. Each shared file can be up to 4 MiB. Original file attachments can contain their original metadata. Open a received file to decrypt it on your device.
+
+Post a poll or start **Tic-tac-toe** or **Four in a row** while participants are in the room. Votes can be changed. Game moves and votes travel as signed room messages. People who join later do not receive earlier cards. The creator plays first, and the first other participant to make a legal move takes the second seat.
+
+Open your avatar and choose **Edit profile picture**. The browser crops and re-encodes the image, saves it only for a saved identity, and shares it inside subsequent encrypted messages. Each attachment uses a fresh file key carried inside its signed room message. Encrypted parts expire with the room. Unfinished uploads expire after two minutes. Downloaded copies stay under the recipient’s control.
+
 ## Self-host with normal HTTPS
 
 Run one Node process per instance. The self-host relay holds rooms, membership, connection state, invitations and ciphertext in an in-memory SQLite database. Restarting it ends all rooms. Only opt-in activity badge records are written to `data/badges.sqlite`. The default binds to loopback. Place a TLS reverse proxy on the same host, set the canonical origin, and proxy to `127.0.0.1:5173`. A normal domain or a provider's HTTPS subdomain works. Review the host and proxy's logging and backup settings.
@@ -86,4 +96,4 @@ npm run validate
 
 Contributions are welcome under the MIT license. For security issues, contact the repository owner privately before publishing sensitive details.
 
-Interface icons are bundled from Lucide 0.468.0. See [the Lucide license](licenses/lucide.txt).
+Interface icons are bundled from Lucide 0.468.0. See [the Lucide license](licenses/lucide.txt). The browser GIF maker uses [gifenc 1.0.3](licenses/gifenc.txt).

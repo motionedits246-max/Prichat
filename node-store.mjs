@@ -18,6 +18,12 @@ export function openStore(savedPath = ":memory:") {
       "CREATE TABLE IF NOT EXISTS saved.marks",
     ),
   );
+  sqlite.exec(
+    readFileSync(
+      new URL("./drizzle/0001_attachments.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   function prepare(sql) {
     const s = sqlite.prepare(sql.replace(/\bmarks\b/g, "saved.marks"));
     function bound(args) {

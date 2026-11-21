@@ -31,7 +31,7 @@ const json = (value, status = 200) =>
     },
   });
 const changes = (result) => result.meta.changes;
-async function readBody(req) {
+async function readBody(req, maxBytes) {
   requireThat(
     req.headers.get("Content-Type")?.split(";")[0] === "application/json",
     415,
@@ -46,7 +46,7 @@ async function readBody(req) {
     const { value, done } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > 20000) {
+    if (size > maxBytes) {
       await reader.cancel();
       throw new ApiError(413, "Request too large.");
     }
@@ -76,6 +76,7 @@ export async function sweep(db, now = Date.now()) {
     select(db, "DELETE FROM sessions WHERE seen<=?", now - HOUR),
     select(db, "DELETE FROM people WHERE seen<=?", now - 2 * HOUR),
     select(db, "DELETE FROM challenges WHERE expires<=?", now),
+    select(db, "DELETE FROM transfers WHERE expires<=?", now),
   ]);
 }
 export function makeRelay({ now = Date.now } = {}) {
@@ -119,7 +120,7 @@ export function makeRelay({ now = Date.now } = {}) {
         403,
         "Cross-origin request blocked.",
       );
-      const b = await readBody(req);
+      const b = await readBody(req, path === "upload-part" ? 177000 : 20000);
       if (path === "info")
         return json({ storage: options.storage || "hosted" });
       if (path === "challenge") {
@@ -344,7 +345,7 @@ export function makeRelay({ now = Date.now } = {}) {
         const hash = await digest(b.grant);
         const out = await db.batch([
           q(
-            "INSERT OR IGNORE INTO members SELECT r.id,?,?,?,coalesce((SELECT max(seq) FROM events),0) FROM rooms r JOIN grants g ON g.room=r.id WHERE r.id=? AND g.digest=? AND (g.target IS NULL OR g.target=?) AND g.expires>? AND r.expires>? AND NOT EXISTS(SELECT 1 FROM members WHERE room=r.id AND seen<=?) AND (SELECT count(*) FROM members WHERE room=r.id)<CASE WHEN r.kind='direct' THEN 2 ELSE ? END AND (SELECT count(*) FROM members WHERE code=?)<10",
+            "INSERT OR IGNORE INTO members SELECT r.id,?,?,?,max(coalesce((SELECT max(seq) FROM events),0),coalesce((SELECT max(published) FROM transfers WHERE room=r.id),0)) FROM rooms r JOIN grants g ON g.room=r.id WHERE r.id=? AND g.digest=? AND (g.target IS NULL OR g.target=?) AND g.expires>? AND r.expires>? AND NOT EXISTS(SELECT 1 FROM members WHERE room=r.id AND seen<=?) AND (SELECT count(*) FROM members WHERE room=r.id)<CASE WHEN r.kind='direct' THEN 2 ELSE ? END AND (SELECT count(*) FROM members WHERE code=?)<10",
             code,
             token,
             at,
@@ -440,6 +441,98 @@ export function makeRelay({ now = Date.now } = {}) {
         );
         return json({ ok: true });
       }
+      if (path === "upload-start") {
+        requireThat(
+          idPattern.test(b.file) &&
+            Number.isInteger(b.parts) &&
+            b.parts >= 1 &&
+            b.parts <= 32,
+          400,
+          "Invalid attachment size.",
+        );
+        const out = await q(
+          `INSERT OR IGNORE INTO transfers(id,room,owner,parts,expires)
+          SELECT ?,?,?,?,? WHERE
+          (SELECT coalesce(sum(parts),0) FROM transfers WHERE room=?) + ? <= 512 AND
+          (SELECT coalesce(sum(parts),0) FROM transfers) + ? <= 4096 AND
+          (SELECT count(*) FROM transfers WHERE owner=? AND published IS NULL) < 4`,
+          b.file,
+          room,
+          code,
+          b.parts,
+          Math.min(at + 2 * MINUTE, member.expires),
+          room,
+          b.parts,
+          b.parts,
+          code,
+        ).run();
+        requireThat(
+          changes(out),
+          429,
+          "Attachment space is busy. Try again shortly.",
+        );
+        return json({ ok: true });
+      }
+      if (path === "upload-part" || path === "download-part") {
+        requireThat(
+          idPattern.test(b.file) &&
+            Number.isInteger(b.part) &&
+            b.part >= 0 &&
+            b.part < 32,
+          400,
+          "Invalid attachment part.",
+        );
+        if (path === "upload-part") {
+          requireThat(
+            typeof b.data === "string" &&
+              b.data.length <= 174801 &&
+              /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+$/.test(b.data),
+            400,
+            "Invalid encrypted part.",
+          );
+          const out = await q(
+            `INSERT OR IGNORE INTO pieces SELECT id,?,? FROM transfers
+            WHERE id=? AND owner=? AND room=? AND parts>? AND published IS NULL AND expires>?`,
+            b.part,
+            b.data,
+            b.file,
+            code,
+            room,
+            b.part,
+            at,
+          ).run();
+          if (!changes(out)) {
+            const existing = await q(
+              `SELECT 1 AS ok FROM pieces p JOIN transfers t ON t.id=p.transfer
+              WHERE t.id=? AND t.room=? AND t.owner=? AND t.expires>? AND p.part=? AND p.data=? AND t.published IS NULL`,
+              b.file,
+              room,
+              code,
+              at,
+              b.part,
+              b.data,
+            ).first();
+            requireThat(
+              existing,
+              409,
+              "Upload expired or part already occupied.",
+            );
+          }
+          return json({ ok: true });
+        }
+        const piece = await q(
+          `SELECT p.data FROM pieces p JOIN transfers t ON t.id=p.transfer
+          JOIN members m ON m.room=t.room WHERE t.id=? AND t.room=? AND p.part=? AND t.expires>?
+          AND m.token=? AND t.published>m.since_seq`,
+          b.file,
+          room,
+          b.part,
+          at,
+          token,
+        ).first();
+        requireThat(piece, 404, "Attachment unavailable in this session.");
+        return json(piece);
+      }
       if (path === "send") {
         requireThat(
           typeof b.packet === "string" &&
@@ -450,17 +543,44 @@ export function makeRelay({ now = Date.now } = {}) {
           400,
           "Invalid encrypted message.",
         );
+        const hasFile = b.file !== undefined;
+        requireThat(
+          !hasFile || idPattern.test(b.file),
+          400,
+          "Invalid attachment.",
+        );
+        const fileCheck = hasFile
+          ? ` AND EXISTS (SELECT 1 FROM transfers t WHERE t.id=? AND t.room=? AND t.owner=?
+          AND t.published IS NULL AND t.expires>? AND t.parts=(SELECT count(*) FROM pieces p WHERE p.transfer=t.id))`
+          : "";
         const day = new Date(at).toISOString().slice(0, 10);
-        const out = await db.batch([
+        const ops = [
           q(
-            "INSERT INTO events(room,code,packet,created) SELECT ?,?,?,? WHERE (SELECT count(*) FROM events WHERE code=? AND created>?)<20",
+            "INSERT INTO events(room,code,packet,created) SELECT ?,?,?,? WHERE (SELECT count(*) FROM events WHERE code=? AND created>?)<20" +
+              fileCheck,
             room,
             code,
             b.packet,
             at,
             code,
             at - 10000,
+            ...(hasFile ? [b.file, room, code, at] : []),
           ),
+        ];
+        if (hasFile)
+          ops.push(
+            q(
+              `UPDATE transfers SET published=(SELECT max(seq) FROM events WHERE room=? AND code=?), expires=?
+           WHERE changes()>0 AND id=? AND room=? AND owner=? AND published IS NULL`,
+              room,
+              code,
+              member.expires,
+              b.file,
+              room,
+              code,
+            ),
+          );
+        ops.push(
           q(
             "UPDATE marks SET days=min(3,days+1),last_day=? WHERE code=? AND days<3 AND (last_day IS NULL OR last_day<>?) AND changes()>0 AND EXISTS(SELECT 1 FROM members WHERE room=? AND code<>?)",
             day,
@@ -469,8 +589,15 @@ export function makeRelay({ now = Date.now } = {}) {
             room,
             code,
           ),
-        ]);
-        requireThat(changes(out[0]), 429, "Slow down for a moment.");
+        );
+        const out = await db.batch(ops);
+        requireThat(
+          changes(out[0]),
+          429,
+          hasFile
+            ? "Upload incomplete or rate limit reached. Try again."
+            : "Slow down for a moment.",
+        );
         return json({ ok: true });
       }
       throw new ApiError(404, "Unknown endpoint.");

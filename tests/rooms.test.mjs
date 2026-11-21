@@ -1,3 +1,4 @@
+import { PART, uploadFile, downloadFile } from "../public/media.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -243,4 +244,114 @@ test("an invite is bound to the exact person code entered by the sender", async 
   await assert.rejects(
     verifyRecipient(intended.code, { ...other, code: intended.code }),
   );
+});
+
+test("multipart attachments stay encrypted, room scoped and unavailable to late joiners", async () => {
+  const f = fixture();
+  try {
+    const [a, b, c] = await Promise.all([f.login(), f.login(), f.login()]);
+    const i = await joinTwo(f, a, b),
+      room = i.room;
+    const call = (who) => async (path, body) => {
+      const res = await f.req(path, body, who.token);
+      if (res.status !== 200) throw Error(res.error);
+      return res;
+    };
+    const source = new Uint8Array(2 * PART + 356);
+    source.fill(77);
+    const file = new File([source], "drawing.private", {
+      type: "application/octet-stream",
+    });
+    const progress = [];
+    const desc = await uploadFile(call(a), room, file, (p) => progress.push(p));
+    assert.equal(progress.length, 3);
+    await assert.rejects(downloadFile(call(b), room, desc));
+    const packet = await packMessage(a, room, i.key, {
+      name: "River",
+      text: "Document",
+      activity: { type: "file", file: desc, kind: "document" },
+    });
+    assert.equal(
+      (await f.req("send", { room, packet, file: desc.id }, a.token)).status,
+      200,
+    );
+    const state = await call(b)("sync", {});
+    assert.equal(state.events.length, 1);
+    const payload = await unpackMessage(a, room, i.key, state.events[0].packet);
+    assert.ok(!JSON.stringify(state).includes("drawing.private"));
+    assert.deepEqual(
+      new Uint8Array(
+        await (
+          await downloadFile(call(b), room, payload.activity.file)
+        ).arrayBuffer(),
+      ),
+      source,
+    );
+    await assert.rejects(downloadFile(call(c), room, desc));
+    for (let n = 0; n < 2; n++) {
+      f.advance(61000);
+      await call(a)("sync", {});
+      await call(b)("sync", {});
+    }
+    assert.equal((await call(b)("sync", {})).events.length, 0);
+    const grant = random(32);
+    await call(a)("invite", { room, digest: await digest(grant) });
+    await call(c)("join", { room, grant });
+    await assert.rejects(downloadFile(call(c), room, desc));
+    await assert.rejects(
+      downloadFile(call(b), room, { ...desc, secret: random(32) }),
+    );
+    await call(a)("leave", { room });
+    await assert.rejects(downloadFile(call(b), room, desc));
+    for (const table of ["transfers", "pieces"])
+      assert.equal(
+        f.db
+          .prepare("SELECT count(*) AS n FROM " + table)
+          .bind()
+          .first().n,
+        0,
+      );
+  } finally {
+    f.db.close();
+  }
+});
+test("incomplete uploads expire; attachment publication requires every part", async () => {
+  const f = fixture();
+  try {
+    const a = await f.login(),
+      { room } = await f.req("create", {}, a.token),
+      file = random(16);
+    const packet = await packMessage(a, room, random(32), {
+      name: "A",
+      text: "file",
+    });
+    assert.equal(
+      (await f.req("upload-start", { file, room, parts: 2 }, a.token)).status,
+      200,
+    );
+    assert.equal(
+      (await f.req("send", { file, room, packet }, a.token)).status,
+      429,
+    );
+    assert.equal(
+      (
+        await f.req(
+          "upload-part",
+          { file, room, part: 2, data: "a".repeat(16) + ".BBBB" },
+          a.token,
+        )
+      ).status,
+      409,
+    );
+    f.advance(70000);
+    await f.req("sync", {}, a.token);
+    f.advance(55000);
+    await f.req("sync", {}, a.token);
+    assert.equal(
+      f.db.prepare("SELECT count(*) AS n FROM transfers").bind().first().n,
+      0,
+    );
+  } finally {
+    f.db.close();
+  }
 });

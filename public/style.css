@@ -1374,3 +1374,450 @@ dialog h3 {
     scroll-behavior: auto !important;
   }
 }
+/* Composer acknowledgement, room activities, and local media. */
+.avatar {
+  overflow: hidden;
+}
+.avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.blue-ring {
+  background: linear-gradient(145deg, #9bdad4, #345a62);
+}
+.violet-ring {
+  background: linear-gradient(145deg, #d3bacf, #655166);
+}
+.room-panel.discussion::before {
+  background: none;
+  mask-image: none;
+  filter: none;
+  inset: 0;
+  transform: none;
+  width: 100%;
+  max-width: none;
+  aspect-ratio: auto;
+  opacity: 1;
+  background-image:
+    radial-gradient(ellipse at 84% 15%, #2a232d70, transparent 47%),
+    radial-gradient(ellipse at 14% 89%, #1a302f5c, transparent 45%);
+}
+.send {
+  position: relative;
+  overflow: hidden;
+  transition:
+    width 0.16s,
+    background 0.16s;
+}
+.send span {
+  display: grid;
+  place-items: center;
+}
+.send .send-check,
+.send .send-error {
+  display: none;
+}
+.send[data-phase="sending"],
+.send[data-phase="sent"] {
+  width: 56px;
+  background: #cbdcd8;
+  color: #1d3830;
+  opacity: 1;
+}
+.send[data-phase="sending"] .send-arrow,
+.send[data-phase="sent"] .send-arrow,
+.send[data-phase="failed"] .send-arrow {
+  display: none;
+}
+.send[data-phase="sent"] .send-check,
+.send[data-phase="failed"] .send-error {
+  display: grid;
+}
+.send[data-phase="sending"] progress,
+.send[data-phase="sent"] progress {
+  position: absolute;
+  left: 10px;
+  width: 36px;
+  height: 4px;
+  border: none;
+  border-radius: 3px;
+  overflow: hidden;
+  appearance: none;
+  background: #9aafa7;
+  color: #304f43;
+}
+.send[data-phase="sending"] progress {
+  top: calc(50% - 2px);
+}
+.send[data-phase="sent"] progress {
+  bottom: 5px;
+}
+.send progress::-webkit-progress-bar {
+  background: #9aafa7;
+}
+.send progress::-webkit-progress-value {
+  background: #304f43;
+  transition: width 0.16s;
+}
+.send progress::-moz-progress-bar {
+  background: #304f43;
+}
+.send progress:indeterminate {
+  background: linear-gradient(90deg, #97aba3 15%, #294e41 48%, #97aba3 80%) 0
+    0 / 200% 100%;
+  animation: send-sweep 0.85s linear infinite;
+}
+.send progress:indeterminate::-webkit-progress-bar {
+  background: transparent;
+}
+.send[data-phase="sent"] svg {
+  width: 17px;
+  height: 17px;
+}
+.send[data-phase="failed"] {
+  color: #ffe3d8;
+  background: #60382e;
+  opacity: 1;
+}
+@keyframes send-sweep {
+  to {
+    background-position: -200% 0;
+  }
+}
+dialog.activity-sheet,
+dialog.share-sheet {
+  width: min(450px, calc(100% - 24px));
+  max-height: min(690px, 88dvh);
+  background: linear-gradient(155deg, #232429, #151619 65%);
+  scrollbar-width: thin;
+}
+.activity-sheet .modal-top,
+.share-sheet .modal-top {
+  margin-bottom: 8px;
+}
+.activity-sheet .modal-icon,
+.share-sheet .modal-icon {
+  width: 33px;
+  height: 33px;
+  border-radius: 11px;
+}
+.action-section h3 {
+  margin: 14px 0 7px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: #aaafb9;
+  text-transform: uppercase;
+}
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+.activity-tile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: #202125;
+  border: 1px solid #34363d;
+  border-radius: 12px;
+  min-height: 43px;
+  padding: 8px 9px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.activity-tile i {
+  color: #b7c9cd;
+}
+.activity-tile:hover,
+.file-drop:hover,
+.card-action:hover,
+.game-cell:not(:disabled):hover {
+  background: #303239;
+  border-color: #5b6168;
+}
+.action-section:nth-child(2) i {
+  color: #cbbdcd;
+}
+.action-section:nth-child(3) i {
+  color: #b7cfbb;
+}
+.activity-tile svg {
+  height: 17px;
+  width: 17px;
+}
+.activity-form,
+.share-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.activity-form {
+  gap: 13px;
+  margin-top: 14px;
+}
+.share-field {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5e6ea;
+}
+.share-field input,
+.share-field textarea,
+.share-field select {
+  background: #111215;
+  color: var(--text);
+  border: 1px solid #3b3d44;
+  border-radius: 12px;
+  padding: 10px 12px;
+  width: 100%;
+  font: inherit;
+  font-weight: 400;
+  color-scheme: dark;
+}
+.share-field textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.share-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+}
+.file-drop,
+.photo-pick {
+  position: relative;
+  cursor: pointer;
+}
+.file-drop {
+  display: grid;
+  gap: 6px;
+  padding: 17px;
+  border: 1px dashed #51545d;
+  border-radius: 15px;
+  place-items: center;
+  text-align: center;
+  background: #17191d;
+}
+.file-drop strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.file-drop small,
+.activity-card small {
+  color: #a9aeb9;
+  font-size: 12px;
+}
+.file-drop input,
+.photo-pick input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.file-drop:focus-within,
+.photo-pick:focus-within {
+  outline: 2px solid #82bdff;
+  outline-offset: 2px;
+}
+.share-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.share-preview img {
+  height: 56px;
+  max-width: 86px;
+  object-fit: cover;
+  border-radius: 9px;
+  margin-top: 8px;
+}
+.share-preview img:only-child {
+  width: 100%;
+  height: auto;
+  max-height: 156px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.emoji-choice {
+  min-height: 44px;
+  font-size: 24px;
+  background: #26282d;
+  border-radius: 12px;
+}
+.activity-card {
+  display: grid;
+  gap: 9px;
+  color: #f0f1f4;
+  border: 1px solid #393b41;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #25272c, #17181b);
+  padding: 13px 15px;
+  min-width: min(200px, 100%);
+  max-width: min(330px, 100%);
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.own .activity-card {
+  border-color: #495451;
+  background: linear-gradient(145deg, #26302e, #1c2222);
+}
+.activity-card > strong,
+.activity-card > span {
+  white-space: pre-wrap;
+}
+.card-kind {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #b0c6c3;
+  font-size: 12px;
+  font-weight: 600;
+}
+.card-kind svg {
+  height: 15px;
+  width: 15px;
+}
+.card-action,
+.photo-pick,
+.poll-option {
+  border: 1px solid #44474e;
+  background: #292c31;
+  border-radius: 10px;
+  color: #e9ebf0;
+  font-size: 13px;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+.poll-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+}
+.poll-option[aria-pressed="true"] {
+  border-color: #8fb6a9;
+  background: #33463d;
+}
+.game-board {
+  display: grid;
+  gap: 4px;
+}
+.game-board.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+.game-board.four {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+.game-cell {
+  padding: 0;
+  aspect-ratio: 1;
+  border-radius: 7px;
+  background: #16191c;
+  border: 1px solid #42464c;
+  color: #f7f7f9;
+  font-size: 20px;
+  font-weight: 600;
+  min-width: 0;
+}
+.three .game-cell {
+  min-height: 37px;
+}
+.game-cell:disabled {
+  opacity: 0.85;
+}
+.game-cell[data-piece="1"] {
+  color: #b4e2d7;
+}
+.game-cell[data-piece="2"] {
+  color: #e4b9dc;
+}
+.four .game-cell {
+  border-radius: 50%;
+  width: clamp(18px, 4.4vw, 30px);
+}
+.four .game-cell[data-piece="1"] {
+  background: #a4d3c1;
+}
+.four .game-cell[data-piece="2"] {
+  background: #c297b7;
+}
+.game-status {
+  color: #bbc2ca;
+  font-size: 12px;
+}
+.media-detail {
+  display: grid;
+  gap: 12px;
+}
+.media-viewer {
+  display: block;
+  max-width: 100%;
+  max-height: 52dvh;
+  border-radius: 10px;
+  margin: auto;
+}
+.download-link {
+  text-decoration: none;
+  width: fit-content;
+}
+.picture-editor {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 14px 0;
+}
+.picture-editor .avatar {
+  width: 60px;
+  height: 60px;
+}
+.edit-photo {
+  margin-bottom: 9px;
+}
+@media (max-width: 600px) {
+  dialog.activity-sheet,
+  dialog.share-sheet {
+    position: fixed;
+    inset: auto 0 0;
+    margin: 0;
+    width: 100%;
+    max-width: none;
+    max-height: 86dvh;
+    border-radius: 22px 22px 0 0;
+    padding: 17px max(17px, env(safe-area-inset-right))
+      max(17px, env(safe-area-inset-bottom));
+  }
+  .activity-tile {
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    font-size: 12px;
+    min-height: 53px;
+    text-align: center;
+  }
+  .activity-card {
+    max-width: min(270px, 100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .send progress:indeterminate {
+    animation: none;
+  }
+  .send progress::-webkit-progress-value {
+    transition: none;
+  }
+}
