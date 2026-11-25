@@ -3,6 +3,8 @@ const root = new URL("../", import.meta.url),
   read = async (path) => readFile(new URL(path, root), "utf8");
 const files = {
   "index.html": "text/html; charset=utf-8",
+  "avatar.js": "text/javascript",
+  "panels.js": "text/javascript",
   "app.js": "text/javascript",
   "activities.js": "text/javascript",
   "share.js": "text/javascript",

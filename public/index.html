@@ -63,16 +63,12 @@
           <button data-action="privacy" aria-label="Privacy" title="Privacy">
             <i data-icon="shield"></i>
           </button>
-          <button
-            data-action="profile"
-            aria-label="Profile settings"
-            title="Profile settings"
-          >
+          <button data-action="settings" aria-label="Settings" title="Settings">
             <i data-icon="settings"></i>
           </button>
         </div>
       </nav>
-      <aside class="sidebar" aria-label="Conversation sidebar">
+      <aside id="chatSide" class="sidebar" aria-label="Conversation sidebar">
         <header class="sidebar-tools">
           <button
             id="profileTop"
@@ -125,6 +121,10 @@
             <i data-icon="users"></i>
             Discussions
           </button>
+          <button data-action="settings">
+            <i data-icon="settings"></i>
+            Settings
+          </button>
           <button data-action="code">
             <i data-icon="copy"></i>
             My person code
@@ -151,7 +151,7 @@
           <button class="orbit" data-action="profile">
             <span class="orbit-face">
               <span class="avatar noir"></span>
-              <span class="orbit-marker"><i data-icon="user"></i></span>
+              <span class="orbit-marker"><i data-icon="pencil"></i></span>
             </span>
             <span id="orbitName">My identity</span>
           </button>
@@ -212,7 +212,19 @@
           </div>
         </div>
       </aside>
+      <aside
+        class="sidebar settings-side"
+        id="settingsSide"
+        aria-label="Settings"
+        hidden
+      ></aside>
       <section class="conversation" id="conversation" aria-label="Conversation">
+        <section
+          id="detailPane"
+          class="detail-pane"
+          aria-label="Settings detail"
+          hidden
+        ></section>
         <div id="emptyChat" class="empty-chat">
           <div class="empty-mark"><i data-icon="message"></i></div>
           <h2>
@@ -315,15 +327,34 @@
             id="thread"
           ></div>
           <div class="compose-wrap">
+            <div
+              id="attachmentMenu"
+              class="attachment-menu"
+              role="menu"
+              aria-label="Add to chat"
+              hidden
+            ></div>
             <form class="composer" id="composer">
               <button
+                id="attachToggle"
                 class="compose-plus"
+                aria-haspopup="menu"
+                aria-controls="attachmentMenu"
+                aria-expanded="false"
                 type="button"
                 data-action="room-actions"
                 aria-label="Add to chat"
                 title="Add to chat"
               >
                 <i data-icon="plus"></i>
+              </button>
+              <button
+                class="compose-emoji"
+                type="button"
+                data-action="emoji"
+                aria-label="Choose emoji"
+              >
+                <i data-icon="smile"></i>
               </button>
               <input
                 id="draft"

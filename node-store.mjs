@@ -24,6 +24,12 @@ export function openStore(savedPath = ":memory:") {
       "utf8",
     ),
   );
+  sqlite.exec(
+    readFileSync(
+      new URL("./drizzle/0002_room_preferences.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   function prepare(sql) {
     const s = sqlite.prepare(sql.replace(/\bmarks\b/g, "saved.marks"));
     function bound(args) {

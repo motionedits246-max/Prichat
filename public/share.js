@@ -362,6 +362,32 @@ export function shareMenu(ui, r, startType = "", initialFile = null) {
               : "Write a note",
         },
       );
+      if (kind === "location" && navigator.geolocation) {
+        fields.unshift(
+          button(
+            "Use device location",
+            () =>
+              new Promise((resolve, reject) =>
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    value.value =
+                      pos.coords.latitude.toFixed(5) +
+                      ", " +
+                      pos.coords.longitude.toFixed(5);
+                    resolve();
+                  },
+                  () =>
+                    reject(
+                      Error(
+                        "Location unavailable. You can enter a place manually.",
+                      ),
+                    ),
+                  { timeout: 10000 },
+                ),
+              ),
+          ),
+        );
+      }
       result = () => ({ type: kind, value: value.value.trim() });
     }
     submitForm(
@@ -371,20 +397,139 @@ export function shareMenu(ui, r, startType = "", initialFile = null) {
       kind === "poll" ? "Post poll" : "Send " + label.toLowerCase(),
     );
   }
-  function menu() {
-    const d = backdrop("Add to chat", "plus", "activity-sheet");
-    for (const [label, items] of entries) {
-      const section = el("section", "action-section"),
-        title = el("h3", null, label),
-        grid = el("div", "action-grid");
-      section.append(title, grid);
-      for (const [kind, title, glyph] of items) {
-        const b = button("", () => edit(kind, title, glyph), "activity-tile");
-        b.append(icon(glyph), el("span", null, title));
-        grid.append(b);
-      }
-      d.append(section);
+  const choices = entries.flatMap(([, items]) => items);
+  function picker(title, glyph, kinds) {
+    const body = backdrop(title, glyph, "share-sheet");
+    for (const kind of kinds) {
+      const choice = choices.find((row) => row[0] === kind);
+      const item = button("", () => edit(...choice), "picker-row");
+      item.append(
+        icon(choice[2]),
+        el("span", null, choice[1]),
+        icon("chevron-right"),
+      );
+      body.append(item);
     }
+  }
+  function photoPaste() {
+    const d = backdrop("Paste image", "clipboard-paste", "share-sheet");
+    d.append(
+      el(
+        "p",
+        "info-text",
+        "Paste a copied image here to preview it before sending.",
+      ),
+    );
+    const box = el("textarea", "text-input");
+    box.placeholder = "Paste an image here";
+    box.setAttribute("aria-label", "Paste an image");
+    box.onpaste = (e) => {
+      e.preventDefault();
+      const f = [...(e.clipboardData?.files || [])].find((f) =>
+        f.type.startsWith("image/"),
+      );
+      if (f)
+        fileForm(
+          f.type === "image/gif" ? "gif" : "photo",
+          "Pasted image",
+          "images",
+          f,
+        );
+      else errorNotice(Error("Copy an image first, then paste it here."));
+    };
+    d.append(box);
+    box.focus();
+  }
+  function camera() {
+    const d = backdrop("Camera", "camera", "share-sheet");
+    const fallback = el("label", "photo-pick", "Choose a camera photo");
+    const input = el("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.setAttribute("capture", "environment");
+    input.onchange = () => {
+      if (input.files[0])
+        fileForm("photo", "Camera photo", "camera", input.files[0]);
+    };
+    fallback.append(input);
+    d.append(fallback);
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    let stream,
+      dismissed = false;
+    ui.onDismiss(() => {
+      dismissed = true;
+      stream?.getTracks().forEach((t) => t.stop());
+    });
+    const video = el("video", "camera-preview");
+    video.playsInline = true;
+    video.muted = true;
+    const start = button("Open camera", async () => {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      if (dismissed) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      video.srcObject = stream;
+      await video.play();
+      start.hidden = true;
+      take.hidden = false;
+    });
+    const take = button(
+      "Take photo",
+      async () => {
+        if (!video.videoWidth) throw Error("Wait for the camera to focus.");
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.min(1600, video.videoWidth);
+        canvas.height = Math.round(
+          (video.videoHeight * canvas.width) / video.videoWidth,
+        );
+        canvas
+          .getContext("2d")
+          .drawImage(video, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.85),
+        );
+        if (!dismissed && blob)
+          fileForm(
+            "photo",
+            "Camera photo",
+            "camera",
+            new File([blob], "camera.jpg", { type: "image/jpeg" }),
+          );
+      },
+      "primary",
+    );
+    take.hidden = true;
+    d.prepend(video, start, take);
+  }
+  function menu() {
+    ui.openMenu(
+      [
+        ["document", "Document", "file-text"],
+        ["media", "Photos & videos", "images"],
+        ["paste", "Paste image", "clipboard-paste"],
+        ["sticker", "Sticker maker", "scissors"],
+        ["camera", "Camera", "camera"],
+        ["audio", "Audio", "audio-lines"],
+        ["contact", "Contact", "user-round"],
+        ["games", "Games", "gamepad-2"],
+        ["poll", "Poll", "chart-no-axes-column"],
+        ["event", "Event", "calendar-days"],
+        ["location", "Current location", "locate-fixed"],
+        ["note", "Note", "sticky-note"],
+      ],
+      (kind, label, glyph) => {
+        if (kind === "media")
+          picker(label, glyph, ["photo", "video", "gif", "maker"]);
+        else if (kind === "games") picker(label, glyph, ["three", "four"]);
+        else if (kind === "paste") photoPaste();
+        else if (kind === "camera") camera();
+        else edit(kind, label, glyph);
+      },
+    );
   }
   if (startType) {
     const entry = entries.flatMap((x) => x[1]).find((x) => x[0] === startType);

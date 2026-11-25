@@ -27,11 +27,21 @@ Open **http://127.0.0.1:5173**. For a two-person test on one PC, open two tabs w
 
 Press **Enter** or the send arrow. The progress bar completes when the relay accepts the message. Failed text stays in the composer. File uploads report progress as encrypted parts are accepted.
 
-Open **+** to share photos, video, audio files, documents, GIFs, emoji, a contact, an event, a note, or a manually entered location. Pasting an image opens the same review step. The sticker maker crops a picture and adds an optional caption. The GIF maker combines two to eight local images. Each shared file can be up to 4 MiB. Original file attachments can contain their original metadata. Open a received file to decrypt it on your device.
+Open **+** to share photos, video, audio files, documents, GIFs, emoji, a contact, an event, a note, or a location you review before sending. Pasting an image opens the same review step. The sticker maker crops a picture and adds an optional caption. The GIF maker combines two to eight local images. Each shared file can be up to 4 MiB. Original file attachments can contain their original metadata. Open a received file to decrypt it on your device.
 
 Post a poll or start **Tic-tac-toe** or **Four in a row** while participants are in the room. Votes can be changed. Game moves and votes travel as signed room messages. People who join later do not receive earlier cards. The creator plays first, and the first other participant to make a legal move takes the second seat.
 
-Open your avatar and choose **Edit profile picture**. The browser crops and re-encodes the image, saves it only for a saved identity, and shares it inside subsequent encrypted messages. Each attachment uses a fresh file key carried inside its signed room message. Encrypted parts expire with the room. Unfinished uploads expire after two minutes. Downloaded copies stay under the recipient’s control.
+Open Settings and use the pencil on your avatar, or select **Account → Profile picture**. The browser crops and re-encodes the image, saves it only for a saved identity, and shares it inside subsequent encrypted messages. Each attachment uses a fresh file key carried inside its signed room message. Published encrypted parts expire with their message timer or the room, whichever comes first. Unfinished uploads expire after two minutes. Downloaded copies stay under the recipient’s control.
+
+## Railway deployment
+
+Deploy the repository as a single service and generate a public domain in Railway Networking. The Node server uses Railway’s assigned port and `RAILWAY_PUBLIC_DOMAIN` to construct the HTTPS origin for identity challenges. When using a custom domain, set `PUBLIC_ORIGIN` to the exact HTTPS origin opened in the browser, then redeploy. An old or mismatched `PUBLIC_ORIGIN` takes precedence over the generated domain and causes a 403 on `/api/info` and `/api/challenge`. One instance serves one canonical origin. A volume mounted at `/app/data` can retain the optional blue activity badges across deploys.
+
+## Profiles and room controls
+
+Each person code generates its own geometric avatar locally. It follows the code when you reopen a saved identity. Settings opens a separate index and detail panel for profile editing, privacy, appearance, sounds and session information. Room Info includes current members, shared items, starred messages, invitations and local appearance controls. The creator can edit an encrypted description, restrict posting and set a timer for new messages. Stars and per-room preferences last for the room session. The optional camera and location actions request permission when chosen and let you review before sending.
+
+Temporary identities and identities kept on a device both use the existing signup-free flow. A blue tick indicates activity on three messaging days. A future opt-in permanent account and gold tick are reserved for a separate account design.
 
 ## Self-host with normal HTTPS
 
@@ -80,7 +90,7 @@ The managed preview can have an outer owner-only access gate. Self-hosting the a
 
 ## Cryptography and privacy limits
 
-The browser generates separate P-256 ECDH and ECDSA key pairs through Web Crypto and proves possession of its signing key to open a session. Person-code invitations are encrypted with ECDH, HKDF-SHA-256 and AES-GCM. Each room has a random 256-bit symmetric key. Each message uses a fresh 96-bit nonce, AES-GCM with room and sender context, and a signature checked against the sender's fingerprint. The API sees public keys, room membership, which code sent each packet, timing and ciphertext sizes. Aliases and discussion names travel inside the encrypted payloads. The app requests no location, contacts, camera or microphone permissions and loads no external analytics, fonts or scripts.
+The browser generates separate P-256 ECDH and ECDSA key pairs through Web Crypto and proves possession of its signing key to open a session. Person-code invitations are encrypted with ECDH, HKDF-SHA-256 and AES-GCM. Each room has a random 256-bit symmetric key. Each message uses a fresh 96-bit nonce, AES-GCM with room and sender context, and a signature checked against the sender's fingerprint. The API sees public keys, room membership, which code sent each packet, timing and ciphertext sizes. Aliases and discussion names travel inside the encrypted payloads. Camera capture and device location require a separate user action. The app loads no external analytics, fonts or scripts.
 
 **This first release uses an unaudited protocol.** It has no forward secrecy or post-compromise recovery. A stolen room key can expose recorded ciphertext from that room. For sensitive use, review both the protocol and its implementation. A compromised host can deliver modified JavaScript and a compromised device can read the screen. Participants can screenshot or save received messages. A hostile operator can log data or suppress room closure. The reference server enforces room expiry and closing; it cannot erase data from another person's device. Saved identities make activities linkable by design.
 

@@ -1,3 +1,5 @@
+import { avatarSource } from "./avatar.js";
+import { createPanels } from "./panels.js";
 import { shareMenu } from "./share.js";
 import {
   parseActivity,
@@ -176,6 +178,7 @@ function idb(mode, task) {
     };
   });
 }
+const guestSeed = random(12);
 let myPhoto = "";
 let saved = null,
   device = null,
@@ -307,6 +310,81 @@ async function init() {
     $("modeHint").textContent = "Choose a name to open this room invitation.";
   }
 }
+const panels = createPanels({
+  $,
+  el,
+  icon,
+  button,
+  avatar,
+  badge,
+  dialog,
+  close,
+  copy,
+  editPhoto,
+  openFile,
+  privacy,
+  profile,
+  displayRoom,
+  roomSeed,
+  peerPhoto,
+  roomPhoto,
+  errorNotice,
+  exit: confirmExit,
+  leaveRoom: confirmLeave,
+  invite: inviteDialog,
+  canInvite: () => {
+    const room = rooms.get(current);
+    return (
+      room &&
+      room.owner === device?.code &&
+      (room.kind !== "direct" || room.peers.length < 2)
+    );
+  },
+  state: () => ({
+    device,
+    name,
+    keep,
+    days,
+    connections,
+    filter,
+    photo: myPhoto,
+    room: rooms.get(current),
+    rooms: [...rooms.values()],
+  }),
+  redraw: () => {
+    workspaceVersion = "";
+    render();
+  },
+  rename: async (alias) => {
+    if (!alias || alias.length > 32)
+      throw Error("Use a display name of 1–32 characters.");
+    if (keep) {
+      const record = { device, name: alias, photo: myPhoto };
+      await idb("readwrite", (s) => s.put(record, "current"));
+      saved = record;
+    }
+    name = alias;
+    render();
+  },
+  updateRoom: async (r, setting, value) => {
+    if (rooms.get(current) !== r) throw Error("This room has closed.");
+    const payload =
+      setting === "description"
+        ? await packMessage(device, r.id, r.key, { description: value })
+        : value;
+    await api("room-preference", { room: r.id, setting, value: payload });
+    if (setting === "description") {
+      r.description = value;
+      r.infoPacket = payload;
+    }
+    if (setting === "owner_posts") r.ownerPosts = value;
+    if (setting === "lifetime") r.lifetime = value;
+    r.revision++;
+    render();
+    await poll();
+  },
+});
+for (const n of ownAvatarNodes()) paintPhoto(n, "");
 init();
 $("identityForm").onsubmit = async (e) => {
   e.preventDefault();
@@ -392,6 +470,8 @@ function roomState(inv) {
     owner: inv.owner || "",
     peers: [],
     msgs: [],
+    stars: new Set(),
+    prefs: {},
     photos: new Map(),
     cards: new Map(),
     revision: 0,
@@ -407,6 +487,8 @@ function addRoom(inv) {
   return r;
 }
 function openRoom(id) {
+  panels.leave();
+  hideAttachments();
   if (current && rooms.has(current))
     rooms.get(current).draft = $("draft").value;
   current = id;
@@ -735,7 +817,10 @@ function confirmExit(forget) {
       forget ? "Forget identity" : "Leave session",
       async () => {
         await api(forget ? "forget" : "disconnect");
-        if (forget) await idb("readwrite", (s) => s.delete("current"));
+        if (forget) {
+          await idb("readwrite", (s) => s.delete("current"));
+          localStorage.removeItem("pc-view-" + device.code);
+        }
         token = "";
         epoch++;
         location.replace(location.pathname);
@@ -782,6 +867,7 @@ function render() {
     name,
     keep,
     days,
+    connections,
     current,
     filter,
     search,
@@ -797,6 +883,7 @@ function render() {
   ]);
   if (version === workspaceVersion) return;
   workspaceVersion = version;
+  panels.sync();
   for (const node of ownAvatarNodes()) paintPhoto(node, myPhoto);
   $("selfDot").hidden = false;
   $("profileTop").setAttribute("aria-label", "Your identity: " + name);
@@ -845,7 +932,13 @@ function render() {
       "room-row" + (r.id === current ? " selected" : ""),
     );
     const wrap = el("span", "list-face");
-    wrap.append(avatar(r.kind === "direct" ? "azure" : "violet", peerPhoto(r)));
+    wrap.append(
+      avatar(
+        r.kind === "direct" ? "azure" : "violet",
+        peerPhoto(r),
+        roomSeed(r),
+      ),
+    );
     const details = el("span", "details"),
       title = el("strong", null, displayRoom(r)),
       last = r.msgs.at(-1);
@@ -854,7 +947,16 @@ function render() {
       r.peers.some((p) => p.code !== device.code && p.badge)
     )
       title.append(badge());
-    details.append(title, el("small", null, last?.text || "Temporary room"));
+    details.append(
+      title,
+      el(
+        "small",
+        null,
+        panels.previewAllowed()
+          ? last?.text || "Temporary room"
+          : "Temporary room",
+      ),
+    );
     const age = el("span", "row-age");
     age.append(
       el("span", null, last ? clock(last.created) : ""),
@@ -892,7 +994,7 @@ function render() {
   $("roomSub").textContent = (r.peers.length || 1) + " in room · Temporary";
   $("headAvatar").className =
     "avatar " + (r.kind === "direct" ? "azure" : "violet");
-  paintPhoto($("headAvatar"), peerPhoto(r));
+  paintPhoto($("headAvatar"), peerPhoto(r), roomSeed(r));
   $("draft").placeholder = "Message " + displayRoom(r) + "…";
   $("inviteBtn").hidden =
     r.owner !== device.code || (r.kind === "direct" && r.peers.length >= 2);
@@ -904,10 +1006,10 @@ function displayRoom(r) {
     ? r.msgs.find((m) => m.code !== device.code)?.name || r.label
     : r.label;
 }
-function avatar(style, photo = "") {
+function avatar(style, photo = "", seed) {
   const a = el("span", "avatar " + style);
   a.setAttribute("aria-hidden", "true");
-  paintPhoto(a, photo);
+  paintPhoto(a, photo, seed);
   return a;
 }
 function clock(t) {
@@ -961,14 +1063,28 @@ function renderThread(r) {
       row = el("div", "msg" + (own ? " own" : "")),
       body = el("div", "message-body");
     if (!own) {
-      row.append(avatar("noir", roomPhoto(r, m.code)));
+      row.append(avatar("noir", roomPhoto(r, m.code), m.code));
       const meta = el("span", "meta", m.name);
       if (r.peers.some((p) => p.code === m.code && p.badge))
         meta.append(badge());
       body.append(meta);
     }
     const foot = el("span", "meta-foot");
-    foot.append(el("time", null, clock(m.created)));
+    const star = button(
+      "",
+      () => {
+        if (r.stars.has(m.seq)) r.stars.delete(m.seq);
+        else r.stars.add(m.seq);
+        r.revision++;
+        render();
+      },
+      "star-toggle",
+    );
+    star.title = r.stars.has(m.seq) ? "Unstar message" : "Star message";
+    star.setAttribute("aria-label", star.title);
+    star.setAttribute("aria-pressed", String(r.stars.has(m.seq)));
+    star.append(icon("star"));
+    foot.append(star, el("time", null, clock(m.created)));
     if (own) {
       const sent = icon("circle-check");
       sent.title = "Sent to room";
@@ -992,6 +1108,28 @@ function renderThread(r) {
     thread.scrollTop = thread.scrollHeight;
 }
 
+function expireMessages() {
+  for (const r of rooms.values()) {
+    const expired = r.msgs.filter(
+      (m) => m.deadline && m.deadline <= Date.now(),
+    );
+    if (!expired.length) continue;
+    for (const m of expired) {
+      r.stars.delete(m.seq);
+      if (["game", "poll"].includes(m.activity?.type))
+        r.cards.delete(m.activity.id);
+    }
+    r.msgs = r.msgs.filter((m) => !m.deadline || m.deadline > Date.now());
+    r.revision++;
+    if (
+      current === r.id &&
+      $("modal").open &&
+      $("modalBody").classList.contains("media-detail")
+    )
+      close();
+  }
+  render();
+}
 async function poll() {
   clearTimeout(timer);
   if (!token) return;
@@ -1000,12 +1138,19 @@ async function poll() {
     return;
   }
   busy = true;
+  expireMessages();
   const ticket = epoch,
     known = new Set(rooms.keys());
   try {
     const data = await api("sync", {
       after,
-      activity: document.hidden ? "away" : current ? "in a room" : "available",
+      activity: !panels.shareActivity()
+        ? "available"
+        : document.hidden
+          ? "away"
+          : current
+            ? "in a room"
+            : "available",
     });
     if (ticket !== epoch) return;
     days = data.days;
@@ -1028,6 +1173,26 @@ async function poll() {
         r.owner = row.owner;
         r.peers = data.peers.filter((p) => p.room === row.id);
         r.expires = row.expires;
+        if (r.ownerPosts !== row.owner_posts || r.lifetime !== row.lifetime)
+          r.revision++;
+        r.ownerPosts = row.owner_posts;
+        r.lifetime = row.lifetime;
+        if (row.description && row.description !== r.infoPacket) {
+          const owner = r.peers.find((p) => p.code === r.owner);
+          if (owner)
+            try {
+              const info = await unpackMessage(
+                owner,
+                r.id,
+                r.key,
+                row.description,
+              );
+              if (typeof info.description === "string")
+                r.description = info.description.slice(0, 400);
+              r.infoPacket = row.description;
+              r.revision++;
+            } catch {}
+        }
       }
     }
     for (const e of data.events) {
@@ -1052,6 +1217,7 @@ async function poll() {
           code: p.code,
           text: activity ? describe(activity) : v.text,
           created: e.created,
+          deadline: e.deadline,
           activity,
         };
         if (
@@ -1064,8 +1230,10 @@ async function poll() {
         }
         if (!applyActivity(r, message)) continue;
         r.msgs.push(message);
+        if (p.code !== device.code) panels.notify(r);
         if (r.msgs.length > 500) {
           const old = r.msgs.shift();
+          r.stars.delete(old.seq);
           if (old.activity?.type === "game" || old.activity?.type === "poll")
             r.cards.delete(old.activity.id);
         }
@@ -1144,20 +1312,22 @@ function ownAvatarNodes() {
     "#profileTop .avatar,.orbit[data-action=profile] .avatar,.entry .portrait-lg",
   );
 }
-function paintPhoto(el, photo) {
+function paintPhoto(el, photo, seed = device?.code || guestSeed) {
   const old = el.querySelector("img");
-  if (!validPhoto(photo)) {
-    old?.remove();
-    return;
-  }
-  if (old?.getAttribute("src") === photo) return;
+  const src = validPhoto(photo) ? photo : avatarSource(seed);
+  if (old?.getAttribute("src") === src) return;
   const img = document.createElement("img");
   img.alt = "";
-  img.src = photo;
+  img.src = src;
   el.replaceChildren(img);
 }
 function roomPhoto(r, code) {
   return code === device?.code ? myPhoto : r.photos.get(code) || "";
+}
+function roomSeed(r) {
+  return r.kind === "direct"
+    ? r.peers.find((p) => p.code !== device?.code)?.code || r.id
+    : r.id;
 }
 function peerPhoto(r) {
   const peer = r.peers.find((p) => p.code !== device?.code);
@@ -1190,7 +1360,8 @@ function editPhoto() {
       }
       myPhoto = chosen;
       for (const x of ownAvatarNodes()) paintPhoto(x, myPhoto);
-      profile();
+      close();
+      panels.refresh();
       toast("Profile picture updated.");
     },
     "primary",
@@ -1302,6 +1473,7 @@ function openActivities(kind = "", file = null) {
       send: sendContent,
       alive: (room) => rooms.get(current) === room,
       errorNotice,
+      openMenu: attachmentMenu,
       onDismiss: (fn) => {
         dialogCleanup = fn;
       },
@@ -1367,7 +1539,14 @@ $("composer").onsubmit = async (e) => {
   }
 };
 document.addEventListener("paste", (e) => {
-  if (!current || $("modal").open || !$("entry").hidden) return;
+  if (
+    !current ||
+    $("modal").open ||
+    !$("detailPane").hidden ||
+    !$("settingsSide").hidden ||
+    !$("entry").hidden
+  )
+    return;
   const item = Array.from(e.clipboardData?.items || []).find(
     (x) => x.kind === "file" && x.type.startsWith("image/"),
   );
@@ -1376,11 +1555,73 @@ document.addEventListener("paste", (e) => {
   e.preventDefault();
   openActivities(file.type === "image/gif" ? "gif" : "photo", file);
 });
+function hideAttachments(restore = false) {
+  $("attachmentMenu").hidden = true;
+  $("attachmentMenu").replaceChildren();
+  $("attachToggle").setAttribute("aria-expanded", "false");
+  if (restore) $("attachToggle").focus();
+}
+function attachmentMenu(items, select) {
+  const menu = $("attachmentMenu");
+  if (!menu.hidden) {
+    hideAttachments(true);
+    return;
+  }
+  if ($("modal").open) close();
+  for (const [kind, label, glyph] of items) {
+    const b = button(
+      "",
+      () => {
+        hideAttachments();
+        select(kind, label, glyph);
+      },
+      "attach-item",
+    );
+    b.dataset.kind = kind;
+    b.setAttribute("role", "menuitem");
+    b.append(icon(glyph), el("span", null, label));
+    menu.append(b);
+  }
+  menu.hidden = false;
+  $("attachToggle").setAttribute("aria-expanded", "true");
+  menu.firstElementChild.focus();
+}
+$("attachmentMenu").onkeydown = (e) => {
+  const buttons = [...$("attachmentMenu").children],
+    at = buttons.indexOf(document.activeElement);
+  if (e.key === "Escape") {
+    e.preventDefault();
+    hideAttachments(true);
+  }
+  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+    e.preventDefault();
+    buttons[
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? buttons.length - 1
+          : (at + buttons.length + (e.key === "ArrowDown" ? 1 : -1)) %
+            buttons.length
+    ].focus();
+  }
+};
+document.addEventListener("pointerdown", (e) => {
+  if (!e.target.closest("#attachToggle,#attachmentMenu")) hideAttachments();
+});
+$("attachmentMenu").addEventListener("focusout", (e) => {
+  if (
+    e.relatedTarget &&
+    !e.relatedTarget.closest("#attachmentMenu,#attachToggle")
+  )
+    hideAttachments();
+});
 function hideMenus() {
   $("inboxMenu").hidden = true;
   $("menuToggle").setAttribute("aria-expanded", "false");
 }
 function startIdentity(next = "") {
+  panels.leave();
+  hideAttachments();
   deferredAction = next;
   $("entry").hidden = false;
   $("emptyChat").hidden = true;
@@ -1421,38 +1662,9 @@ function showInvitations() {
       ),
     );
 }
-function roomDetails() {
-  const r = rooms.get(current);
-  if (!r) return;
-  const d = dialog(displayRoom(r), r.kind === "direct" ? "message" : "users");
-  d.append(
-    el(
-      "p",
-      "modal-copy",
-      (r.peers.length || 1) +
-        " in room. Leaving closes this conversation for everyone.",
-    ),
-  );
-  if (!$("inviteBtn").hidden)
-    d.append(
-      option(
-        "Invite someone",
-        "Send a person-code or one-use invitation.",
-        "user-plus",
-        () => inviteDialog(r),
-      ),
-    );
-  d.append(
-    option(
-      "Leave room",
-      "End the conversation for every member.",
-      "exit",
-      confirmLeave,
-    ),
-  );
-}
 function runAction(action) {
   hideMenus();
+  if (action !== "room-actions") hideAttachments();
   if (action === "privacy") {
     privacy();
     return;
@@ -1471,7 +1683,9 @@ function runAction(action) {
     direct: () => composeNew("direct"),
     group: () => composeNew("discussion"),
     join: pasteInvite,
-    profile,
+    profile: () => panels.settings("Account"),
+    settings: () => panels.settings(),
+    emoji: () => openActivities("emoji"),
     code: () => copy(device.code),
     directs: () => chooseFilter("direct"),
     discussions: () => chooseFilter("discussion"),
@@ -1486,7 +1700,12 @@ function updateSend() {
     p = $("sendProgress"),
     phase = r?.feedback || "",
     hasText = !!$("draft").value.trim();
-  btn.disabled = !r || !!r.sending || !hasText;
+  const readOnly = Boolean(r?.ownerPosts && r.owner !== device?.code);
+  $("draft").disabled = readOnly;
+  $("attachToggle").disabled = readOnly;
+  document.querySelector(".compose-emoji").disabled = readOnly;
+  if (readOnly) $("draft").placeholder = "Only the room creator can post";
+  btn.disabled = !r || readOnly || !!r.sending || !hasText;
   btn.dataset.phase = phase;
   const label =
     phase === "sending"
@@ -1504,10 +1723,14 @@ function updateSend() {
   if ($("sendStatus").textContent !== label)
     $("sendStatus").textContent = phase ? label : "";
 }
+$("draft").onkeydown = (e) => {
+  if (e.key === "Enter" && (!panels.enterAllowed() || e.isComposing))
+    e.preventDefault();
+};
 $("draft").oninput = updateSend;
 $("profileTop").onclick = () => runAction("profile");
 $("leaveBtn").onclick = confirmLeave;
-$("roomInfo").onclick = roomDetails;
+$("roomInfo").onclick = () => panels.group();
 $("inviteBtn").onclick = () => inviteDialog(rooms.get(current));
 $("searchToggle").onclick = () => {
   hideMenus();

@@ -9,6 +9,8 @@ const db = openStore(process.env.PRICHAT_BADGE_DB || "data/badges.sqlite"),
   relay = makeRelay();
 const assets = new Map([
   ["/", "index.html"],
+  ["/avatar.js", "avatar.js"],
+  ["/panels.js", "panels.js"],
   ["/app.js", "app.js"],
   ["/activities.js", "activities.js"],
   ["/share.js", "share.js"],
@@ -31,8 +33,31 @@ function arg(flag) {
   const i = process.argv.indexOf(flag);
   return i < 0 ? undefined : process.argv[i + 1];
 }
-const host = arg("--host") || process.env.HOST || "127.0.0.1",
+const host =
+    arg("--host") ||
+    process.env.HOST ||
+    (process.env.RAILWAY_ENVIRONMENT_ID ? "0.0.0.0" : "127.0.0.1"),
   port = Number(arg("--port") || process.env.PORT || 5173);
+// Railway supplies the public DNS name while its edge terminates HTTPS.
+const configured =
+  process.env.PUBLIC_ORIGIN ||
+  (process.env.RAILWAY_PUBLIC_DOMAIN &&
+    "https://" + process.env.RAILWAY_PUBLIC_DOMAIN);
+function canonicalOrigin(value) {
+  if (!value) return "";
+  const u = new URL(value);
+  if (
+    !["http:", "https:"].includes(u.protocol) ||
+    u.username ||
+    u.password ||
+    u.search ||
+    u.hash ||
+    u.pathname !== "/"
+  )
+    throw Error("Set PUBLIC_ORIGIN to the public origin, without a path.");
+  return u.origin;
+}
+const publicOrigin = canonicalOrigin(configured);
 const server = http.createServer(async (req, res) => {
   try {
     // The preview gateway terminates TLS. Self-hosters set their canonical HTTPS origin explicitly.
@@ -41,8 +66,7 @@ const server = http.createServer(async (req, res) => {
       req.headers["x-forwarded-proto"] === "https"
         ? "https"
         : "http";
-    const origin =
-      process.env.PUBLIC_ORIGIN || proto + "://" + req.headers.host;
+    const origin = publicOrigin || proto + "://" + req.headers.host;
     const url = new URL(req.url, origin);
     if (url.origin !== origin) throw Error("Origin mismatch");
     let response;

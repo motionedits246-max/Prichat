@@ -72,7 +72,12 @@ export async function sweep(db, now = Date.now()) {
     ),
     select(db, "DELETE FROM invites WHERE expires<=?", now),
     select(db, "DELETE FROM grants WHERE expires<=?", now),
-    select(db, "DELETE FROM events WHERE created<=?", now - 2 * MINUTE),
+    select(
+      db,
+      "DELETE FROM events WHERE created<=? OR (deadline>0 AND deadline<=?)",
+      now - 2 * MINUTE,
+      now,
+    ),
     select(db, "DELETE FROM sessions WHERE seen<=?", now - HOUR),
     select(db, "DELETE FROM people WHERE seen<=?", now - 2 * HOUR),
     select(db, "DELETE FROM challenges WHERE expires<=?", now),
@@ -223,7 +228,7 @@ export function makeRelay({ now = Date.now } = {}) {
         const [rooms, peers, events, invites, mark, connections] =
           await db.batch([
             q(
-              "SELECT r.id,r.owner,r.kind,r.expires FROM rooms r JOIN members m ON m.room=r.id WHERE m.token=? AND r.expires>? AND NOT EXISTS(SELECT 1 FROM members z WHERE z.room=r.id AND z.seen<=?)",
+              "SELECT r.id,r.owner,r.kind,r.expires,r.owner_posts,r.lifetime,r.description FROM rooms r JOIN members m ON m.room=r.id WHERE m.token=? AND r.expires>? AND NOT EXISTS(SELECT 1 FROM members z WHERE z.room=r.id AND z.seen<=?)",
               token,
               at,
               at - LEASE,
@@ -233,10 +238,11 @@ export function makeRelay({ now = Date.now } = {}) {
               token,
             ),
             q(
-              "SELECT e.* FROM events e JOIN members m ON m.room=e.room WHERE m.token=? AND e.seq>max(?,m.since_seq) AND e.created>? ORDER BY e.seq LIMIT 160",
+              "SELECT e.* FROM events e JOIN members m ON m.room=e.room WHERE m.token=? AND e.seq>max(?,m.since_seq) AND e.created>? AND (e.deadline=0 OR e.deadline>?) ORDER BY e.seq LIMIT 160",
               token,
               cursor,
               at - 2 * MINUTE,
+              at,
             ),
             q(
               "SELECT i.id,i.sender,i.parcel,p.box,p.sign FROM invites i JOIN people p ON p.code=i.sender WHERE i.target=? AND i.expires>? ORDER BY i.rowid DESC LIMIT 32",
@@ -317,7 +323,7 @@ export function makeRelay({ now = Date.now } = {}) {
           kind = b.kind === "direct" ? "direct" : "discussion";
         const result = await db.batch([
           q(
-            "INSERT INTO rooms SELECT ?,?,?,? WHERE (SELECT count(*) FROM rooms)<450 AND (SELECT count(*) FROM members WHERE code=?)<10",
+            "INSERT INTO rooms(id,owner,kind,expires) SELECT ?,?,?,? WHERE (SELECT count(*) FROM rooms)<450 AND (SELECT count(*) FROM members WHERE code=?)<10",
             key,
             code,
             kind,
@@ -387,6 +393,50 @@ export function makeRelay({ now = Date.now } = {}) {
         at - LEASE,
       ).first();
       requireThat(member, 410, "This room has closed.");
+      if (path === "room-preference") {
+        requireThat(
+          code === member.owner,
+          403,
+          "Only the room creator can change this setting.",
+        );
+        if (b.setting === "owner_posts" && [0, 1].includes(b.value))
+          await q(
+            "UPDATE rooms SET owner_posts=? WHERE id=? AND owner=?",
+            b.value,
+            room,
+            code,
+          ).run();
+        else if (
+          b.setting === "lifetime" &&
+          [0, 30, 300, 900].includes(b.value)
+        )
+          await q(
+            "UPDATE rooms SET lifetime=? WHERE id=? AND owner=?",
+            b.value,
+            room,
+            code,
+          ).run();
+        else if (
+          b.setting === "description" &&
+          typeof b.value === "string" &&
+          b.value.length <= 3000 &&
+          /^[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+~[A-Za-z0-9_-]{86}$/.test(b.value)
+        )
+          await q(
+            "UPDATE rooms SET description=? WHERE id=? AND owner=?",
+            b.value,
+            room,
+            code,
+          ).run();
+        else throw new ApiError(400, "Invalid room preference.");
+        return json({ ok: true });
+      }
+      if (["send", "upload-start", "upload-part"].includes(path))
+        requireThat(
+          !member.owner_posts || member.owner === code,
+          403,
+          "Only the creator can post in this room.",
+        );
       if (path === "leave") {
         await q("DELETE FROM rooms WHERE id=?", room).run();
         return json({ ok: true });
@@ -556,12 +606,15 @@ export function makeRelay({ now = Date.now } = {}) {
         const day = new Date(at).toISOString().slice(0, 10);
         const ops = [
           q(
-            "INSERT INTO events(room,code,packet,created) SELECT ?,?,?,? WHERE (SELECT count(*) FROM events WHERE code=? AND created>?)<20" +
+            "INSERT INTO events(room,code,packet,created,deadline) SELECT ?,?,?,?,CASE WHEN lifetime>0 THEN min(expires,?+1000*lifetime) ELSE 0 END FROM rooms WHERE id=? AND (owner_posts=0 OR owner=?) AND (SELECT count(*) FROM events WHERE code=? AND created>?)<20" +
               fileCheck,
             room,
             code,
             b.packet,
             at,
+            at,
+            room,
+            code,
             code,
             at - 10000,
             ...(hasFile ? [b.file, room, code, at] : []),
@@ -570,10 +623,12 @@ export function makeRelay({ now = Date.now } = {}) {
         if (hasFile)
           ops.push(
             q(
-              `UPDATE transfers SET published=(SELECT max(seq) FROM events WHERE room=? AND code=?), expires=?
+              `UPDATE transfers SET published=(SELECT max(seq) FROM events WHERE room=? AND code=?), expires=min(?,coalesce(nullif((SELECT deadline FROM events WHERE room=? ORDER BY seq DESC LIMIT 1),0),?))
            WHERE changes()>0 AND id=? AND room=? AND owner=? AND published IS NULL`,
               room,
               code,
+              member.expires,
+              room,
               member.expires,
               b.file,
               room,

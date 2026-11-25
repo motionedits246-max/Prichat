@@ -355,3 +355,79 @@ test("incomplete uploads expire; attachment publication requires every part", as
     f.db.close();
   }
 });
+
+test("creator-managed posting, signed description and disappearing files", async () => {
+  const f = fixture();
+  try {
+    const a = await f.login(),
+      b = await f.login();
+    const { room, key } = await joinTwo(f, a, b);
+    const preference = (who, setting, value) =>
+      f.req("room-preference", { room, setting, value }, who.token);
+    assert.equal((await preference(b, "lifetime", 30)).status, 403);
+    assert.equal((await preference(a, "owner_posts", 1)).status, 200);
+    const packet = await packMessage(a, room, key, {
+      name: "Owner",
+      text: "File",
+    });
+    assert.equal((await f.req("send", { room, packet }, b.token)).status, 403);
+    assert.equal(
+      (
+        await f.req(
+          "upload-start",
+          { room, file: random(16), parts: 1 },
+          b.token,
+        )
+      ).status,
+      403,
+    );
+    const info = await packMessage(a, room, key, {
+      description: "A private group",
+    });
+    assert.equal((await preference(a, "description", info)).status, 200);
+    const settings = (await f.req("sync", {}, b.token)).rooms[0];
+    assert.equal(settings.owner_posts, 1);
+    assert.deepEqual(await unpackMessage(a, room, key, settings.description), {
+      description: "A private group",
+    });
+    assert.equal((await preference(a, "lifetime", 30)).status, 200);
+    const file = random(16);
+    assert.equal(
+      (await f.req("upload-start", { room, file, parts: 1 }, a.token)).status,
+      200,
+    );
+    assert.equal(
+      (
+        await f.req(
+          "upload-part",
+          { room, file, part: 0, data: "a".repeat(16) + ".BBBB" },
+          a.token,
+        )
+      ).status,
+      200,
+    );
+    assert.equal(
+      (await f.req("send", { room, packet, file }, a.token)).status,
+      200,
+    );
+    const event = (await f.req("sync", {}, b.token)).events[0];
+    assert.equal(event.deadline - event.created, 30000);
+    f.advance(30001);
+    assert.equal((await f.req("sync", {}, b.token)).events.length, 0);
+    assert.notEqual(
+      (await f.req("download-part", { room, file, part: 0 }, b.token)).status,
+      200,
+    );
+    assert.equal((await preference(a, "owner_posts", 0)).status, 200);
+    const reply = await packMessage(b, room, key, {
+      name: "Member",
+      text: "Hi",
+    });
+    assert.equal(
+      (await f.req("send", { room, packet: reply }, b.token)).status,
+      200,
+    );
+  } finally {
+    f.db.close();
+  }
+});
