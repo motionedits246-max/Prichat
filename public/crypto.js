@@ -7,9 +7,12 @@ export const base64 = (bytes) =>
     .replaceAll("/", "_")
     .replace(/=+$/, "");
 export const decode = (value) =>
-  Uint8Array.from(atob(value.replaceAll("-", "+").replaceAll("_", "/")), (c) =>
-    c.charCodeAt(0),
-  );
+  Uint8Array.fromBase64
+    ? Uint8Array.fromBase64(value, { alphabet: "base64url" })
+    : Uint8Array.from(
+        atob(value.replaceAll("-", "+").replaceAll("_", "/")),
+        (c) => c.charCodeAt(0),
+      );
 export const random = (size) =>
   base64(crypto.getRandomValues(new Uint8Array(size)));
 export async function digest(value) {
@@ -31,10 +34,10 @@ export async function personCode(box, sign) {
     .toUpperCase();
   return "PC-" + encoded.match(/.{4}/g).join("-");
 }
-export async function makeDevice() {
+export async function makeDevice(exportable = false) {
   const [box, sign] = await Promise.all([
-    crypto.subtle.generateKey(curve("ECDH"), false, ["deriveBits"]),
-    crypto.subtle.generateKey(curve("ECDSA"), false, ["sign", "verify"]),
+    crypto.subtle.generateKey(curve("ECDH"), exportable, ["deriveBits"]),
+    crypto.subtle.generateKey(curve("ECDSA"), exportable, ["sign", "verify"]),
   ]);
   const pub = async (key) => base64(await crypto.subtle.exportKey("raw", key));
   const b = await pub(box.publicKey),

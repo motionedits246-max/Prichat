@@ -432,25 +432,215 @@ test("creator-managed posting, signed description and disappearing files", async
   }
 });
 
-test("50 MiB arbitrary-extension file round-trips while oversized attachments are rejected",async()=>{
-  const f=fixture();
-  try{
-    const a=await f.login(),b=await f.login(),{room,key}=await joinTwo(f,a,b);
-    const call=who=>async(path,body)=>{const result=await f.req(path,body,who.token);assert.equal(result.status,200,result.error);return result;};
-    const size=50*1024*1024,bytes=new Uint8Array(size);
-    for(let i=0;i<bytes.length;i+=PART)bytes[i]=(i/PART)%251;
-    bytes[size-1]=173;
-    const desc=await uploadFile(call(a),room,new File([bytes],"payload.custom-format"),()=>{});
-    assert.equal(desc.mime,"");
-    const packet=await packMessage(a,room,key,{text:"File",name:"Test",activity:{type:"file",kind:"document",file:desc}});
-    await call(a)("send",{room,packet,file:desc.id});
-    const state=await call(b)("sync",{}),message=await unpackMessage(a,room,key,state.events[0].packet);
-    const result=await downloadFile(call(b),room,message.activity.file);
-    assert.equal(result.type,"application/octet-stream");
-    assert.equal(message.activity.file.filename,"payload.custom-format");
-    assert.deepEqual(new Uint8Array(await result.arrayBuffer()),bytes);
-    await assert.rejects(uploadFile(call(a),room,{size:size+1}),/50 MiB/);
-    assert.equal((await f.req("upload-start",{room,file:random(16),parts:401},a.token)).status,400);
-    assert.equal((await f.req("upload-part",{room,file:desc.id,part:400,data:"x"},a.token)).status,400);
-  }finally{f.db.close();}
+test("50 MiB arbitrary-extension file round-trips while oversized attachments are rejected", async () => {
+  const f = fixture();
+  try {
+    const a = await f.login(),
+      b = await f.login(),
+      { room, key } = await joinTwo(f, a, b);
+    const call = (who) => async (path, body) => {
+      const result = await f.req(path, body, who.token);
+      assert.equal(result.status, 200, result.error);
+      return result;
+    };
+    const size = 50 * 1024 * 1024,
+      bytes = new Uint8Array(size);
+    for (let i = 0; i < bytes.length; i += PART) bytes[i] = (i / PART) % 251;
+    bytes[size - 1] = 173;
+    const desc = await uploadFile(
+      call(a),
+      room,
+      new File([bytes], "payload.custom-format"),
+      () => {},
+    );
+    assert.equal(desc.mime, "");
+    const packet = await packMessage(a, room, key, {
+      text: "File",
+      name: "Test",
+      activity: { type: "file", kind: "document", file: desc },
+    });
+    await call(a)("send", { room, packet, file: desc.id });
+    const state = await call(b)("sync", {}),
+      message = await unpackMessage(a, room, key, state.events[0].packet);
+    const result = await downloadFile(call(b), room, message.activity.file);
+    assert.equal(result.type, "application/octet-stream");
+    assert.equal(message.activity.file.filename, "payload.custom-format");
+    assert.deepEqual(new Uint8Array(await result.arrayBuffer()), bytes);
+    await assert.rejects(
+      uploadFile(call(a), room, { size: size + 1 }),
+      /50 MiB/,
+    );
+    assert.equal(
+      (
+        await f.req(
+          "upload-start",
+          { room, file: random(16), parts: 401 },
+          a.token,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await f.req(
+          "upload-part",
+          { room, file: desc.id, part: 400, data: "x" },
+          a.token,
+        )
+      ).status,
+      400,
+    );
+  } finally {
+    f.db.close();
+  }
+});
+
+test("permanent profiles retain their code, badge and encrypted edits after a restart", async () => {
+  const { prepareDevice, enrollProfile, restoreProfile, updateProfile } =
+    await import("../public/vault.js");
+  const dir = mkdtempSync(join(tmpdir(), "prichat-profile-")),
+    file = join(dir, "profiles.sqlite");
+  let f = fixture(file);
+  const api = async (path, body, token) => {
+    const res = await f.req(path, body, token);
+    if (res.status !== 200)
+      throw Object.assign(Error(res.error), { status: res.status });
+    return res;
+  };
+  try {
+    const { device, enrollment } = await prepareDevice(),
+      password = "a long test passphrase",
+      alias = "Test Pilot";
+    let a = await f.login(device);
+    const vault = await enrollProfile(
+      api,
+      a.token,
+      device,
+      enrollment,
+      password,
+      alias,
+      "",
+    );
+    const row = f.db
+      .prepare("SELECT * FROM profiles WHERE code=?")
+      .bind(device.code)
+      .first();
+    assert.ok(!JSON.stringify(row).includes(alias));
+    assert.ok(!JSON.stringify(row).includes(password));
+    await assert.rejects(
+      restoreProfile(api, device.code, password + "!"),
+      /Check your/,
+    );
+    await updateProfile(api, a.token, vault, "New alias", "");
+    await assert.rejects(
+      updateProfile(api, a.token, { ...vault, revision: 1 }, "Stale edit", ""),
+      /another device/,
+    );
+    for (let i = 1; i <= 3; i++) {
+      a = await f.login(device);
+      const b = await f.login(),
+        r = await joinTwo(f, a, b);
+      await api(
+        "send",
+        {
+          room: r.room,
+          packet: await packMessage(a, r.room, r.key, {
+            text: "Hello",
+            name: alias,
+          }),
+        },
+        a.token,
+      );
+      assert.equal(
+        (await api("sync", {}, b.token)).peers.find((p) => p.code === a.code)
+          .badge,
+        i === 3 ? 2 : 0,
+      );
+      if (i < 3) f.advance(86400000);
+    }
+    f.db.close();
+    f = fixture(file);
+    const reopened = await restoreProfile(
+      api,
+      device.code.toLowerCase(),
+      password,
+    );
+    assert.equal(reopened.name, "New alias");
+    assert.equal(reopened.device.signKey.extractable, false);
+    a = await f.login(reopened.device);
+    assert.equal(a.code, device.code);
+    assert.equal((await api("sync", {}, a.token)).days, 3);
+    await api("forget", {}, a.token);
+    await assert.rejects(restoreProfile(api, a.code, password), /Check your/);
+  } finally {
+    f.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("reactions update independently per sender and expressions use the bundled catalogue", async () => {
+  const { parseActivity, applyActivity } = await import(
+    "../public/activities.js"
+  );
+  const id = "A".repeat(86),
+    target = { id },
+    room = { msgs: [target], revision: 0 };
+  const send = (code, symbol) =>
+    applyActivity(room, {
+      activity: parseActivity({ type: "reaction", target: id, symbol }),
+      code,
+    });
+  assert.equal(send("first", "❤️"), false);
+  send("second", "😂");
+  send("first", "👍");
+  send("second", "");
+  assert.deepEqual([...target.reactions], [["first", "👍"]]);
+  assert.equal(
+    parseActivity({ type: "reaction", target: id, symbol: "unexpected" }),
+    null,
+  );
+  assert.equal(
+    parseActivity({ type: "expression", kind: "gif", id: "unknown" }),
+    null,
+  );
+  assert.equal(
+    parseActivity({ type: "expression", kind: "gift", id: "coffee" }).kind,
+    "gift",
+  );
+});
+
+test("an upload can last longer than two minutes while new chunks keep arriving", async () => {
+  const f = fixture();
+  try {
+    const a = await f.login(),
+      { room } = await f.req("create", {}, a.token),
+      file = random(16);
+    assert.equal(
+      (await f.req("upload-start", { room, file, parts: 3 }, a.token)).status,
+      200,
+    );
+    for (let part = 0; part < 3; part++) {
+      f.advance(61000);
+      await f.req("sync", {}, a.token);
+      assert.equal(
+        (
+          await f.req(
+            "upload-part",
+            { file, room, part, data: "A".repeat(16) + ".AAAA" },
+            a.token,
+          )
+        ).status,
+        200,
+      );
+    }
+    const packet = await packMessage(a, room, random(32), {
+      name: "Test",
+      text: "Attachment",
+    });
+    assert.equal(
+      (await f.req("send", { room, file, packet }, a.token)).status,
+      200,
+    );
+  } finally {
+    f.db.close();
+  }
 });

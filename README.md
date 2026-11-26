@@ -27,25 +27,31 @@ Open **http://127.0.0.1:5173**. For a two-person test on one PC, open two tabs w
 
 Press **Enter** or the send arrow. The progress bar completes when the relay accepts the message. Failed text stays in the composer. File uploads report progress as encrypted parts are accepted.
 
+Use **Reply** beside any message to quote it. **More** opens quick reactions, an on-device extractive summary, forwarding, starring, a tab-local pin and copying. Replies link to the original message in its room. The smile button opens searchable emoji, GIFs, stickers, audio, live emoji and virtual gifts. The GIF and sticker catalogue is bundled locally.
+
 Open **+** to share photos, video, audio files, documents, GIFs, emoji, a contact, an event, a note, or a location you review before sending. Pasting an image opens the same review step. The sticker maker crops a picture and adds an optional caption. The GIF maker combines two to eight local images. Choose **File or document** to send any extension, including an extensionless file, up to 50 MiB (52,428,800 bytes). Original file attachments can contain their original metadata. Open a received file to decrypt it on your device.
 
 Post a poll or start **Tic-tac-toe** or **Four in a row** while participants are in the room. Votes can be changed. Game moves and votes travel as signed room messages. People who join later do not receive earlier cards. The creator plays first, and the first other participant to make a legal move takes the second seat.
 
-Open Settings and use the pencil on your avatar, or select **Account → Profile picture**. The browser crops and re-encodes the image, saves it only for a saved identity, and shares it inside subsequent encrypted messages. Each attachment uses a fresh file key carried inside its signed room message. Published encrypted parts expire with their message timer or the room, whichever comes first. Unfinished uploads expire after two minutes without a new chunk, or when the room closes. Downloaded copies stay under the recipient’s control.
+Open Settings and use the pencil on your avatar, or select **Account → Profile picture**. The browser crops and re-encodes the image, persists it for device and permanent profiles, and shares it inside subsequent encrypted messages. Each attachment uses a fresh file key carried inside its signed room message. Published encrypted parts expire with their message timer or the room, whichever comes first. Unfinished uploads expire after two minutes without a new chunk, or when the room closes. Downloaded copies stay under the recipient’s control.
 
 ## Railway deployment
 
-Deploy the repository as a single service and generate a public domain in Railway Networking. The Node server uses Railway’s assigned port and `RAILWAY_PUBLIC_DOMAIN` to construct the HTTPS origin for identity challenges. When using a custom domain, set `PUBLIC_ORIGIN` to the exact HTTPS origin opened in the browser, then redeploy. An old or mismatched `PUBLIC_ORIGIN` takes precedence over the generated domain and causes a 403 on `/api/info` and `/api/challenge`. One instance serves one canonical origin. A volume mounted at `/app/data` can retain the optional blue activity badges across deploys.
+Deploy the repository as a single service and generate a public domain in Railway Networking. The Node server uses Railway’s assigned port and `RAILWAY_PUBLIC_DOMAIN` to construct the HTTPS origin for identity challenges. When using a custom domain, set `PUBLIC_ORIGIN` to the exact HTTPS origin opened in the browser, then redeploy. An old or mismatched `PUBLIC_ORIGIN` takes precedence over the generated domain and causes a 403 on `/api/info` and `/api/challenge`. One instance serves one canonical origin. Mount a persistent volume at `/app/data` to retain permanent profiles and badge progress across Railway redeploys.
 
 ## Profiles and room controls
 
 Each person code generates its own geometric avatar locally. It follows the code when you reopen a saved identity. Settings opens a separate index and detail panel for profile editing, privacy, appearance, sounds and session information. Room Info includes current members, shared items, starred messages, invitations and local appearance controls. The creator can edit an encrypted description, restrict posting and set a timer for new messages. Stars and per-room preferences last for the room session. The optional camera and location actions request permission when chosen and let you review before sending.
 
-Temporary identities and identities kept on a device both use the existing signup-free flow. A blue tick indicates activity on three messaging days. A future opt-in permanent account and gold tick are reserved for a separate account design.
+Temporary identities and identities kept on a device both use the existing signup-free flow. A blue tick indicates activity on three messaging days. Permanent profiles earn a gold activity tick under the same rule.
+
+Choose **Permanent** when starting, or **Settings → Account → Make profile permanent** to keep a newly generated code across browsers. Select **Log in**, then enter your code and password on the same host. Save both safely. There is no password reset. Older device profiles use non-exportable original keys and can still open in the original browser. Create a separate permanent code to use across devices.
+
+The browser derives a lookup secret and an encryption key from a password of at least 15 characters using PBKDF2-SHA256 (600,000 iterations) and HKDF. The relay stores encrypted key material and encrypted profile details. Restoring the profile still requires signing the session challenge. Rooms and messages are excluded from the profile. A stolen database permits offline password guessing.
 
 ## Self-host with normal HTTPS
 
-Run one Node process per instance. The self-host relay holds rooms, membership, connection state, invitations and ciphertext in an in-memory SQLite database. Restarting it ends all rooms. Only opt-in activity badge records are written to `data/badges.sqlite`. The default binds to loopback. Place a TLS reverse proxy on the same host, set the canonical origin, and proxy to `127.0.0.1:5173`. A normal domain or a provider's HTTPS subdomain works. Review the host and proxy's logging and backup settings.
+Run one Node process per instance. The self-host relay holds rooms, membership, connection state, invitations and ciphertext in an in-memory SQLite database. Restarting it ends all rooms. Only encrypted permanent profiles and opt-in activity badge records are written to `data/badges.sqlite`. The default binds to loopback. Place a TLS reverse proxy on the same host, set the canonical origin, and proxy to `127.0.0.1:5173`. A normal domain or a provider's HTTPS subdomain works. Review the host and proxy's logging and backup settings.
 
 ```powershell
 $env:PUBLIC_ORIGIN = "https://chat.example.org"
@@ -60,7 +66,7 @@ chat.example.org {
 }
 ```
 
-A Docker build is also available. Publish the app port to the host loopback and give only the badge store a volume. Set the same canonical origin used by the reverse proxy.
+A Docker build is also available. Publish the app port to the host loopback and mount a persistent volume for saved profiles and badge records. Set the same canonical origin used by the reverse proxy.
 
 ```powershell
 docker build -t prichat .
@@ -84,7 +90,7 @@ It lists live person codes with a connection count per activity: available, in a
 | Room delivery | In-process memory, single instance | D1 database shared across worker instances |
 | Cleanup | A five-second sweep and request-time checks | Request-time cleanup and expiry checks; idle physical records await the next request |
 | On closure | Deletes room and child records, no chat database on disk | Deletes live rows; provider recovery history may contain earlier ciphertext and metadata |
-| Saved identities | Device keys in browser, optional badge records on disk | Device keys in browser, optional badge records in D1 |
+| Saved identities | Device keys in browser, optional encrypted profiles and badges on disk | Device keys in browser, optional encrypted profiles and badges in D1 |
 
 The managed preview can have an outer owner-only access gate. Self-hosting the application requires no ChatGPT account. D1 offers provider-level point-in-time recovery. [Cloudflare D1 retention](https://developers.cloudflare.com/d1/reference/time-travel/)
 

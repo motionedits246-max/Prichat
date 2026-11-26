@@ -20,6 +20,8 @@ export function mediaTag(type) {
   return "";
 }
 function encodeBytes(bytes) {
+  if (bytes.toBase64)
+    return bytes.toBase64({ alphabet: "base64url", omitPadding: true });
   let raw = "";
   for (let i = 0; i < bytes.length; i += 16384)
     raw += String.fromCharCode(...bytes.subarray(i, i + 16384));
@@ -50,15 +52,20 @@ export function validFile(f) {
 }
 // Keep large transfers moving without buffering the entire file in memory.
 async function transferParts(count, task) {
-  let next=0, failure;
-  async function worker(){
-    while(!failure && next<count){
-      const i=next++;
-      try{await task(i);}catch(error){failure=error;}
+  let next = 0,
+    failure;
+  async function worker() {
+    while (!failure && next < count) {
+      const i = next++;
+      try {
+        await task(i);
+      } catch (error) {
+        failure = error;
+      }
     }
   }
-  await Promise.all(Array.from({length:Math.min(4,count)},worker));
-  if(failure)throw failure;
+  await Promise.all(Array.from({ length: Math.min(4, count) }, worker));
+  if (failure) throw failure;
 }
 export async function uploadFile(api, room, file, progress) {
   if (!file.size || file.size > MAX_FILE)
@@ -73,8 +80,8 @@ export async function uploadFile(api, room, file, progress) {
   const parts = Math.ceil(f.size / PART),
     key = await fileKey(f.secret, "encrypt");
   await api("upload-start", { room, file: f.id, parts });
-  let completed=0;
-  await transferParts(parts,async index=>{
+  let completed = 0;
+  await transferParts(parts, async (index) => {
     const bytes = await file
         .slice(index * PART, (index + 1) * PART)
         .arrayBuffer(),
@@ -98,7 +105,7 @@ export async function downloadFile(api, room, f) {
   if (!validFile(f)) throw Error("Invalid attachment.");
   const key = await fileKey(f.secret, "decrypt"),
     chunks = [];
-  await transferParts(Math.ceil(f.size/PART),async index=>{
+  await transferParts(Math.ceil(f.size / PART), async (index) => {
     const { data } = await api("download-part", {
       room,
       file: f.id,
@@ -114,7 +121,7 @@ export async function downloadFile(api, room, f) {
     );
     if (bytes.byteLength !== Math.min(PART, f.size - index * PART))
       throw Error("Incomplete attachment.");
-    chunks[index]=bytes;
+    chunks[index] = bytes;
   });
   return new Blob(chunks, {
     type: mediaTag(f.mime) ? f.mime : "application/octet-stream",

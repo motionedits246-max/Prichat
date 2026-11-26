@@ -11,7 +11,6 @@ const entries = [
       ["document", "File or document", "paperclip"],
       ["audio", "Audio", "audio-lines"],
       ["gif", "GIF", "clapperboard"],
-      ["emoji", "Emoji", "smile"],
     ],
   ],
   [
@@ -33,24 +32,6 @@ const entries = [
       ["four", "Four in a row", "disc-3"],
     ],
   ],
-];
-const emojiChoices = [
-  ["Smile", "😀"],
-  ["Laugh", "😂"],
-  ["Grin", "😁"],
-  ["Wink", "😉"],
-  ["Thinking", "🤔"],
-  ["Surprised", "😮"],
-  ["Sad", "😢"],
-  ["Celebrate", "🎉"],
-  ["Heart", "❤️"],
-  ["Thumbs up", "👍"],
-  ["Clap", "👏"],
-  ["Wave", "👋"],
-  ["Sparkles", "✨"],
-  ["Fire", "🔥"],
-  ["Eyes", "👀"],
-  ["Check", "✅"],
 ];
 const accept = {
   photo: "image/jpeg,image/png,image/webp",
@@ -160,7 +141,9 @@ export function shareMenu(ui, r, startType = "", initialFile = null) {
           ? "2–8 frames in selection order"
           : kind === "sticker"
             ? "JPEG, PNG, WebP or GIF"
-            : kind==="document"?"Any file extension · Up to 50 MiB":"Up to 50 MiB";
+            : kind === "document"
+              ? "Any file extension · Up to 50 MiB"
+              : "Up to 50 MiB";
       if (["photo", "gif", "sticker", "maker"].includes(kind)) {
         for (const f of files.slice(0, 8)) {
           if (mediaTag(f.type) !== "img" || f.size > 12 * 1048576) continue;
@@ -276,30 +259,6 @@ export function shareMenu(ui, r, startType = "", initialFile = null) {
     }
     const d = backdrop(label, glyph, "share-sheet"),
       fields = [];
-    if (kind === "emoji") {
-      const grid = el("div", "emoji-grid");
-      for (const [label, symbol] of emojiChoices) {
-        const b = button(
-          symbol,
-          () => {
-            if (!alive(r)) return;
-            const at = draft.selectionStart ?? draft.value.length,
-              end = draft.selectionEnd ?? at;
-            if (draft.value.length - end + at + symbol.length > draft.maxLength)
-              throw Error("Message is full.");
-            draft.setRangeText(symbol, at, end, "end");
-            draft.dispatchEvent(new Event("input"));
-            close();
-            draft.focus();
-          },
-          "emoji-choice",
-        );
-        b.setAttribute("aria-label", label);
-        grid.append(b);
-      }
-      d.append(grid);
-      return;
-    }
     const add = (label, opts) => {
       const x = input(label, opts);
       fields.push(x.wrap);

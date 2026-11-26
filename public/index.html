@@ -25,7 +25,7 @@
             data-action="inbox"
             aria-label="PriChat home"
           >
-            <i data-icon="message"></i>
+            <img class="prichat-mark" src="/mark.svg" alt="" />
           </button>
           <button
             class="compose-key"
@@ -80,7 +80,7 @@
             <span class="online-dot" id="selfDot" hidden></span>
           </button>
           <button class="brand-pill" data-action="inbox">
-            <i data-icon="message"></i>
+            <img class="prichat-mark" src="/mark.svg" alt="" />
             PriChat
           </button>
           <button
@@ -105,6 +105,10 @@
           </button>
         </header>
         <div class="popover" id="inboxMenu" hidden>
+          <button id="menuLogin" data-action="login">
+            <i data-icon="key-round"></i>
+            Log in with a person code
+          </button>
           <button data-action="new">
             <i data-icon="square-pen"></i>
             New conversation
@@ -226,7 +230,9 @@
           hidden
         ></section>
         <div id="emptyChat" class="empty-chat">
-          <div class="empty-mark"><i data-icon="message"></i></div>
+          <div class="empty-mark">
+            <img class="prichat-mark" src="/mark.svg" alt="" />
+          </div>
           <h2>
             PriChat
             <span class="desktop-text">for desktop</span>
@@ -234,6 +240,9 @@
           <p id="emptyCopy">Choose a name to start messaging privately.</p>
           <button data-action="enter" class="primary compact" id="begin">
             Choose a name
+          </button>
+          <button id="landingLogin" class="entry-link" data-action="login">
+            Log in with a person code
           </button>
         </div>
         <section id="entry" class="entry" hidden>
@@ -249,31 +258,78 @@
                 <i data-icon="x"></i>
               </button>
             </div>
-            <h2>Your identity</h2>
-            <p class="muted">Choose the name people see in your chats.</p>
-            <label class="field-label" for="name">Display name</label>
-            <input
-              class="text-input"
-              id="name"
-              placeholder="Your name"
-              required
-              maxlength="32"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <fieldset class="choices">
-              <legend class="sr-only">Identity duration</legend>
-              <label>
-                <input type="radio" name="mode" value="temporary" checked />
-                <i data-icon="hourglass"></i>
-                Temporary
+            <div class="auth-tabs">
+              <button type="button" id="createTab" aria-pressed="true">
+                Start chatting
+              </button>
+              <button type="button" id="loginTab" aria-pressed="false">
+                Log in
+              </button>
+            </div>
+            <h2 id="entryTitle">Your identity</h2>
+            <p class="muted" id="entryIntro">
+              Choose the name people see in your chats.
+            </p>
+            <div id="createFields">
+              <label class="field-label" for="name">Display name</label>
+              <input
+                class="text-input"
+                id="name"
+                required
+                maxlength="32"
+                autocomplete="nickname"
+                placeholder="Your name"
+              />
+              <fieldset class="choices">
+                <legend class="sr-only">Profile type</legend>
+                <label>
+                  <input type="radio" name="mode" value="temporary" checked />
+                  Temporary
+                </label>
+                <label>
+                  <input type="radio" name="mode" value="saved" />
+                  This device
+                </label>
+                <label>
+                  <input type="radio" name="mode" value="permanent" />
+                  Permanent
+                </label>
+              </fieldset>
+            </div>
+            <div id="codeField" hidden>
+              <label class="field-label" for="loginCode">Person code</label>
+              <input
+                class="text-input"
+                id="loginCode"
+                maxlength="40"
+                placeholder="PC-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                autocapitalize="characters"
+                spellcheck="false"
+                autocomplete="username"
+              />
+            </div>
+            <div id="passField" hidden>
+              <label class="field-label" for="profilePass">Password</label>
+              <input
+                class="text-input"
+                id="profilePass"
+                type="password"
+                maxlength="256"
+                autocomplete="new-password"
+              />
+            </div>
+            <div id="confirmField" hidden>
+              <label class="field-label" for="confirmPass">
+                Confirm password
               </label>
-              <label>
-                <input type="radio" name="mode" value="saved" />
-                <i data-icon="bookmark"></i>
-                Keep on device
-              </label>
-            </fieldset>
+              <input
+                class="text-input"
+                id="confirmPass"
+                type="password"
+                maxlength="256"
+                autocomplete="new-password"
+              />
+            </div>
             <p class="helper" id="modeHint">
               Your person code lasts for this session.
             </p>
@@ -320,6 +376,12 @@
               <i data-icon="exit"></i>
             </button>
           </header>
+          <button
+            type="button"
+            class="pinned-shortcut"
+            id="pinnedMessage"
+            hidden
+          ></button>
           <div
             class="thread"
             role="log"
@@ -334,6 +396,22 @@
               aria-label="Add to chat"
               hidden
             ></div>
+            <section
+              id="expressionPicker"
+              class="expression-picker"
+              aria-label="Expressions"
+              hidden
+            ></section>
+            <div id="replyDraft" class="reply-draft" hidden>
+              <i data-icon="reply"></i>
+              <div>
+                <strong id="replyName"></strong>
+                <span id="replyText"></span>
+              </div>
+              <button type="button" id="cancelReply" aria-label="Cancel reply">
+                <i data-icon="x"></i>
+              </button>
+            </div>
             <form class="composer" id="composer">
               <button
                 id="attachToggle"
@@ -351,10 +429,23 @@
               <button
                 class="compose-emoji"
                 type="button"
+                id="expressionToggle"
+                aria-controls="expressionPicker"
+                aria-expanded="false"
                 data-action="emoji"
-                aria-label="Choose emoji"
+                aria-label="Emoji, GIFs and gifts"
               >
                 <i data-icon="smile"></i>
+              </button>
+              <button
+                type="button"
+                id="fileToggle"
+                class="compose-emoji"
+                data-action="file"
+                aria-label="Attach a file"
+                title="Attach a file"
+              >
+                <i data-icon="paperclip"></i>
               </button>
               <input
                 id="draft"
@@ -402,6 +493,7 @@
       <h2 id="modalTitle"></h2>
       <div id="modalBody"></div>
     </dialog>
+    <dialog id="messageMenu" aria-label="Message actions"></dialog>
     <div class="toast" id="toast" role="status" hidden></div>
   </body>
 </html>

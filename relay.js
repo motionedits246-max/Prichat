@@ -190,6 +190,22 @@ export function makeRelay({ now = Date.now } = {}) {
         ]);
         return json({ code, token, storage: options.storage || "hosted" });
       }
+      if (path === "profile-open") {
+        requireThat(
+          personPattern.test(b.code) &&
+            typeof b.locator === "string" &&
+            /^[\w-]{43}$/.test(b.locator),
+          400,
+          "Check your person code and password.",
+        );
+        const row = await q(
+          "SELECT salt,keys,profile,revision FROM profiles WHERE code=? AND locator=?",
+          b.code,
+          await digest(b.locator),
+        ).first();
+        requireThat(row, 404, "Check your person code and password.");
+        return json(row);
+      }
       const bearer = req.headers.get("authorization") || "";
       requireThat(
         /^Bearer [A-Za-z0-9_-]{43}$/.test(bearer),
@@ -205,6 +221,61 @@ export function makeRelay({ now = Date.now } = {}) {
       requireThat(session, 401, "Your session expired. Reopen your identity.");
       const code = session.code,
         room = String(b.room || "");
+      if (path === "profile-create" || path === "profile-update") {
+        const packet = (s, max) =>
+          typeof s === "string" &&
+          s.length <= max &&
+          /^[\w-]{16}\.[\w-]{22,}$/.test(s);
+        requireThat(packet(b.profile, 5300), 400, "Invalid encrypted profile.");
+        if (path === "profile-create") {
+          requireThat(
+            packet(b.keys, 2400) &&
+              typeof b.salt === "string" &&
+              /^[\w-]{22}$/.test(b.salt) &&
+              typeof b.locator === "string" &&
+              /^[\w-]{43}$/.test(b.locator),
+            400,
+            "Invalid enrollment.",
+          );
+          const [added] = await db.batch([
+            q(
+              "INSERT OR IGNORE INTO profiles(code,locator,salt,keys,profile) SELECT ?,?,?,?,? WHERE (SELECT count(*) FROM profiles)<100000",
+              code,
+              await digest(b.locator),
+              b.salt,
+              b.keys,
+              b.profile,
+            ),
+            q(
+              "INSERT OR IGNORE INTO marks(code) SELECT ? WHERE changes()>0",
+              code,
+            ),
+          ]);
+          requireThat(
+            changes(added),
+            409,
+            "Profile already enrolled or registration limit reached.",
+          );
+          return json({ revision: 1 });
+        }
+        requireThat(
+          Number.isSafeInteger(b.revision) && b.revision > 0,
+          400,
+          "Invalid revision.",
+        );
+        const result = await q(
+          "UPDATE profiles SET profile=?,revision=revision+1 WHERE code=? AND revision=?",
+          b.profile,
+          code,
+          b.revision,
+        ).run();
+        requireThat(
+          changes(result),
+          409,
+          "Profile changed on another device. Log in again before editing.",
+        );
+        return json({ revision: b.revision + 1 });
+      }
       if (path === "sync") {
         const cursor =
           Number.isSafeInteger(b.after) && b.after >= 0 ? b.after : 0;
@@ -235,7 +306,7 @@ export function makeRelay({ now = Date.now } = {}) {
               at - LEASE,
             ),
             q(
-              "SELECT m.room,p.code,p.box,p.sign,coalesce(k.days,0)>=3 AS badge FROM members m JOIN people p ON p.code=m.code LEFT JOIN marks k ON k.code=p.code WHERE m.room IN (SELECT room FROM members WHERE token=?)",
+              "SELECT m.room,p.code,p.box,p.sign,CASE WHEN coalesce(k.days,0)<3 THEN 0 WHEN EXISTS(SELECT 1 FROM profiles x WHERE x.code=m.code) THEN 2 ELSE 1 END AS badge FROM members m JOIN people p ON p.code=m.code LEFT JOIN marks k ON k.code=p.code WHERE m.room IN (SELECT room FROM members WHERE token=?)",
               token,
             ),
             q(
@@ -277,6 +348,7 @@ export function makeRelay({ now = Date.now } = {}) {
             code,
           ),
           q("DELETE FROM invites WHERE target=? OR sender=?", code, code),
+          q("DELETE FROM profiles WHERE code=?", code),
           q("DELETE FROM marks WHERE code=?", code),
           q("DELETE FROM sessions WHERE code=?", code),
           q("DELETE FROM people WHERE code=?", code),
@@ -541,17 +613,27 @@ export function makeRelay({ now = Date.now } = {}) {
             400,
             "Invalid encrypted part.",
           );
-          const [out] = await db.batch([q(
-            `INSERT OR IGNORE INTO pieces SELECT id,?,? FROM transfers
+          const [out] = await db.batch([
+            q(
+              `INSERT OR IGNORE INTO pieces SELECT id,?,? FROM transfers
             WHERE id=? AND owner=? AND room=? AND parts>? AND published IS NULL AND expires>?`,
-            b.part,
-            b.data,
-            b.file,
-            code,
-            room,
-            b.part,
-            at,
-          ),q("UPDATE transfers SET expires=min(?,(SELECT expires FROM rooms WHERE id=?)) WHERE id=? AND owner=? AND room=? AND published IS NULL AND changes()>0",at+2*MINUTE,room,b.file,code,room)]);
+              b.part,
+              b.data,
+              b.file,
+              code,
+              room,
+              b.part,
+              at,
+            ),
+            q(
+              "UPDATE transfers SET expires=min(?,(SELECT expires FROM rooms WHERE id=?)) WHERE id=? AND owner=? AND room=? AND published IS NULL AND changes()>0",
+              at + 2 * MINUTE,
+              room,
+              b.file,
+              code,
+              room,
+            ),
+          ]);
           if (!changes(out)) {
             const existing = await q(
               `SELECT 1 AS ok FROM pieces p JOIN transfers t ON t.id=p.transfer

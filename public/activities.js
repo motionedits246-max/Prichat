@@ -1,3 +1,4 @@
+import { expression, emoji } from "./picker.js";
 import { validFile, mediaTag } from "./media.js";
 const bounded = (v, max) =>
   typeof v === "string" && v.trim().length > 0 && v.length <= max;
@@ -6,6 +7,16 @@ export const gameNames = { three: "Tic-tac-toe", four: "Four in a row" };
 export function parseActivity(a) {
   if (!a || typeof a !== "object") return null;
   switch (a.type) {
+    case "reaction":
+      return typeof a.target === "string" &&
+        /^[\w-]{86}$/.test(a.target) &&
+        (a.symbol === "" || emoji.some((x) => x.symbol === a.symbol))
+        ? { type: "reaction", target: a.target, symbol: a.symbol }
+        : null;
+    case "expression":
+      return expression(a.kind, a.id)
+        ? { type: "expression", kind: a.kind, id: a.id }
+        : null;
     case "file":
       return validFile(a.file) &&
         ["photo", "video", "audio", "document", "gif", "sticker"].includes(
@@ -65,6 +76,15 @@ export function parseActivity(a) {
 }
 export function describe(a) {
   if (!a) return "";
+  if (a.type === "reaction") return "Reaction";
+  if (a.type === "expression")
+    return (
+      { gif: "GIF", sticker: "Sticker", gift: "Gift", live: "Live emoji" }[
+        a.kind
+      ] +
+      " · " +
+      expression(a.kind, a.id).label
+    );
   if (a.type === "file")
     return (
       (a.kind === "sticker"
@@ -115,6 +135,16 @@ function winner(board, cell, cols, goal) {
 export function applyActivity(r, m) {
   const a = m.activity;
   if (!a) return true;
+  if (a.type === "reaction") {
+    const original = r.msgs.find((x) => x.id === a.target);
+    if (original) {
+      original.reactions ||= new Map();
+      if (a.symbol) original.reactions.set(m.code, a.symbol);
+      else original.reactions.delete(m.code);
+      r.revision++;
+    }
+    return false;
+  }
   if (a.type === "poll" || a.type === "game") {
     if (r.cards.has(a.id)) return false;
     if (a.type === "poll") m.votes = new Map();
@@ -177,6 +207,32 @@ export function activityCard(m, { el, icon, button, self, send, openFile }) {
     h.append(icon(glyph), el("span", null, label));
     card.append(h);
   };
+  if (a.type === "expression") {
+    const item = expression(a.kind, a.id);
+    card.classList.add("expression-card", a.kind);
+    if (a.kind === "gift") {
+      const box = el("details", "gift-card"),
+        label = el("summary");
+      label.append(icon("gift"), el("span", null, "Open gift"));
+      box.append(
+        label,
+        el("span", "gift-symbol", item.symbol),
+        el("strong", null, item.label),
+      );
+      card.append(box);
+    } else if (item.data) {
+      const img = el("img");
+      img.alt = item.label;
+      img.src = item.data;
+      card.append(img);
+    } else {
+      const symbol = el("span", "live-symbol", item.symbol);
+      symbol.setAttribute("role", "img");
+      symbol.setAttribute("aria-label", item.label);
+      card.append(symbol);
+    }
+    return card;
+  }
   if (a.type === "file") {
     const tags = {
       document: "file-text",

@@ -5,12 +5,18 @@ import { Readable } from "node:stream";
 import { openStore } from "./node-store.mjs";
 import { makeRelay, sweep } from "./relay.js";
 import { policy } from "./headers.js";
-const db = openStore(process.env.PRICHAT_BADGE_DB || "data/badges.sqlite"),
+const db = openStore(
+    process.env.PRICHAT_BADGE_DB ||
+      resolve(process.env.RAILWAY_VOLUME_MOUNT_PATH || "data", "badges.sqlite"),
+  ),
   relay = makeRelay();
 const assets = new Map([
   ["/", "index.html"],
   ["/avatar.js", "avatar.js"],
   ["/panels.js", "panels.js"],
+  ["/vault.js", "vault.js"],
+  ["/picker.js", "picker.js"],
+  ["/picker-art.js", "picker-art.js"],
   ["/app.js", "app.js"],
   ["/activities.js", "activities.js"],
   ["/share.js", "share.js"],

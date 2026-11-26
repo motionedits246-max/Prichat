@@ -30,8 +30,17 @@ export function openStore(savedPath = ":memory:") {
       "utf8",
     ),
   );
+  sqlite.exec(
+    readFileSync(
+      new URL("./drizzle/0003_permanent_profiles.sql", import.meta.url),
+      "utf8",
+    ).replace(
+      "CREATE TABLE profiles",
+      "CREATE TABLE IF NOT EXISTS saved.profiles",
+    ),
+  );
   function prepare(sql) {
-    const s = sqlite.prepare(sql.replace(/\bmarks\b/g, "saved.marks"));
+    const s = sqlite.prepare(sql.replace(/\b(marks|profiles)\b/g, "saved.$1"));
     function bound(args) {
       return {
         all: () => ({ results: s.all(...args), meta: { changes: 0 } }),

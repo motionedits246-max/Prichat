@@ -313,29 +313,43 @@ export function createPanels(ui) {
       const a = block(body, "Identity");
       row(
         a,
-        s.keep ? "Saved on this device" : "Temporary identity",
-        s.keep
-          ? "Reopen this person code in this browser."
-          : "This code lasts for this session.",
+        s.permanent
+          ? "Permanent profile"
+          : s.keep
+            ? "Saved on this device"
+            : "Temporary identity",
+        s.permanent
+          ? "Reopen with your code and password."
+          : s.keep
+            ? "Reopen this person code in this browser."
+            : "This code lasts for this session.",
         "fingerprint",
         ui.profile,
       );
       row(
         a,
         "Activity badge",
-        s.keep
+        s.keep || s.permanent
           ? (s.days || 0) + " of 3 messaging days"
           : "Available for identities kept on this device.",
         "badge",
       );
+      if (!s.permanent)
+        row(
+          a,
+          "Make profile permanent",
+          "Keep your person code across browsers.",
+          "key-round",
+          ui.enroll,
+        );
       const actions = block(body, "Session actions");
       row(actions, "Leave session", "Close your active rooms.", "exit", () =>
         ui.exit(false),
       );
-      if (s.keep)
+      if (s.keep || s.permanent)
         row(
           actions,
-          "Forget this identity",
+          s.permanent ? "Delete permanent profile" : "Forget this identity",
           "Remove the saved keys and activity badge.",
           "fingerprint",
           () => ui.exit(true),
@@ -423,7 +437,9 @@ export function createPanels(ui) {
       row(
         g,
         "Activity badge",
-        "The blue tick records activity on three UTC dates with other members.",
+        s.permanent
+          ? "Earn a gold tick by messaging with others on three distinct UTC dates."
+          : "Device profiles earn a blue tick on three distinct UTC messaging dates.",
         "badge",
       );
     } else if (section === "Connections") {
@@ -439,9 +455,11 @@ export function createPanels(ui) {
       row(
         g,
         "This browser",
-        s.keep
-          ? "Device identity saved locally."
-          : "Temporary device identity.",
+        s.permanent
+          ? "Signed in to your permanent profile."
+          : s.keep
+            ? "Device identity saved locally."
+            : "Temporary device identity.",
         "circle-user-round",
       );
     } else if (section === "Storage & data") {

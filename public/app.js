@@ -1,3 +1,10 @@
+import {
+  prepareDevice,
+  enrollProfile,
+  restoreProfile,
+  updateProfile,
+} from "./vault.js";
+import { createPicker, emoji } from "./picker.js";
 import { avatarSource } from "./avatar.js";
 import { createPanels } from "./panels.js";
 import { shareMenu } from "./share.js";
@@ -15,7 +22,6 @@ import {
   mediaTag,
 } from "./media.js";
 import {
-  makeDevice,
   verifyRecipient,
   random,
   digest,
@@ -27,20 +33,25 @@ import {
   unpackInvite,
 } from "./crypto.js";
 const $ = (id) => document.getElementById(id);
+const sprite = new DOMParser().parseFromString(
+  await (await fetch("/lucide.svg")).text(),
+  "image/svg+xml",
+);
 function icon(name) {
   const i = document.createElement("i");
   i.setAttribute("aria-hidden", "true");
   const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg"),
-    use = document.createElementNS(ns, "use");
+  const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("fill", "none");
   svg.setAttribute("stroke", "currentColor");
   svg.setAttribute("stroke-width", "1.9");
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
-  use.setAttribute("href", "/lucide.svg#" + name);
-  svg.append(use);
+  const symbol = sprite.getElementById(name);
+  if (symbol)
+    for (const child of symbol.children)
+      svg.append(document.importNode(child, true));
   i.append(svg);
   return i;
 }
@@ -77,6 +88,16 @@ function toast(msg) {
 }
 function errorNotice(e) {
   const msg = e.message || "Something went wrong.";
+  if ($("messageMenu").open) {
+    let n = $("messageMenu").querySelector(".form-error");
+    if (!n) {
+      n = el("p", "form-error");
+      n.setAttribute("role", "alert");
+      $("messageMenu").querySelector(".message-sheet").append(n);
+    }
+    n.textContent = msg;
+    return;
+  }
   if ($("modal").open) {
     let n = $("dialogError");
     if (!n) {
@@ -151,10 +172,12 @@ async function copy(text) {
     i.select();
   }
 }
-function badge() {
-  const n = el("span", "tick");
-  n.setAttribute("aria-label", "Established device");
-  n.title = "Established device · messaged on three days";
+function badge(kind = activeVault ? 2 : 1) {
+  const n = el("span", kind === 2 ? "tick gold" : "tick");
+  n.title =
+    (kind === 2 ? "Established permanent profile" : "Established device") +
+    " · three messaging days";
+  n.setAttribute("aria-label", n.title);
   n.append(icon("badge"));
   return n;
 }
@@ -179,7 +202,11 @@ function idb(mode, task) {
   });
 }
 const guestSeed = random(12);
-let myPhoto = "";
+let myPhoto = "",
+  activeVault = null,
+  enrollment = "",
+  loginMode = false,
+  menuTarget = null;
 let saved = null,
   device = null,
   token = "",
@@ -262,7 +289,7 @@ function privacy() {
     ],
     [
       "What stays on your device",
-      "Room keys and readable messages live in your tab. A saved identity keeps its name, picture and keys in this browser. Downloaded files and screenshots can outlast the room.",
+      "Room keys and readable messages live in your tab. A device profile stays in this browser. A permanent profile keeps a password-encrypted copy of its keys, name and picture on this host. Downloaded files and screenshots can outlast the room.",
     ],
     [
       "Hosting and deletion",
@@ -279,17 +306,142 @@ function privacy() {
   }
 }
 function updateMode() {
-  let permanent =
-    document.querySelector('[name="mode"]:checked').value === "saved";
-  $("modeHint").textContent = permanent
-    ? "Reuse this code on this browser and earn an activity badge."
-    : "Your person code expires when you leave this session.";
-  $("enterBtn").querySelector("span").textContent =
-    saved && permanent ? "Open my workspace" : "Create my person code";
+  const mode = document.querySelector('[name="mode"]:checked').value,
+    portable = mode === "permanent";
+  $("createTab").setAttribute("aria-pressed", String(!loginMode));
+  $("loginTab").setAttribute("aria-pressed", String(loginMode));
+  $("entryTitle").textContent = loginMode ? "Welcome back" : "Your identity";
+  $("entryIntro").textContent = loginMode
+    ? "Open your permanent profile on this device."
+    : "Choose the name people see in your chats.";
+  $("createFields").hidden = $("name").disabled = loginMode;
+  $("codeField").hidden = $("loginCode").disabled = !loginMode;
+  $("loginCode").required = loginMode;
+  $("passField").hidden = $("profilePass").disabled = !(loginMode || portable);
+  $("profilePass").required = !$("passField").hidden;
+  $("profilePass").minLength = loginMode ? 1 : 15;
+  $("profilePass").autocomplete = loginMode
+    ? "current-password"
+    : "new-password";
+  $("confirmField").hidden = $("confirmPass").disabled = loginMode || !portable;
+  $("confirmPass").required = !$("confirmField").hidden;
+  $("modeHint").textContent = loginMode
+    ? "Use the code and password from this PriChat host."
+    : portable
+      ? "Choose at least 15 characters. Save your code and password. There is no password reset."
+      : mode === "saved"
+        ? "Reuse this code in this browser."
+        : "Your person code lasts for this session.";
+  $("enterBtn").querySelector("span").textContent = loginMode
+    ? "Log in"
+    : portable
+      ? "Create permanent profile"
+      : mode === "saved" && saved
+        ? "Open my workspace"
+        : "Create my person code";
 }
 document
   .querySelectorAll('[name="mode"]')
   .forEach((n) => (n.onchange = updateMode));
+function switchAccess(login) {
+  loginMode = login;
+  $("profilePass").value =
+    $("confirmPass").value =
+    $("entryError").textContent =
+      "";
+  updateMode();
+  $(login ? "loginCode" : "name").focus();
+}
+$("loginTab").onclick = () => switchAccess(true);
+$("createTab").onclick = () => switchAccess(false);
+async function saveDetails(alias, photo) {
+  if (activeVault) await updateProfile(api, token, activeVault, alias, photo);
+  if (keep) {
+    const record = { device, name: alias, photo, enrollment };
+    await idb("readwrite", (s) => s.put(record, "current"));
+    saved = record;
+  }
+}
+function showCode() {
+  const d = dialog("Save your person code", "key-round");
+  d.append(
+    el(
+      "p",
+      "info-text",
+      "Use your code and password on this PriChat host to reopen your profile. Your rooms still expire.",
+    ),
+    el("code", "vault-code", device.code),
+  );
+  actions(
+    d,
+    button("Copy person code", () => copy(device.code), "primary"),
+    button("Done", close),
+  );
+}
+function upgrade() {
+  const d = dialog("Make profile permanent", "key-round");
+  if (!enrollment) {
+    d.append(
+      el(
+        "p",
+        "info-text",
+        "Older device profiles open only in their original browser. To get a portable code, leave this session and create a separate permanent profile.",
+      ),
+    );
+    return;
+  }
+  d.append(
+    el(
+      "p",
+      "info-text",
+      "Keep this person code and its activity days. Save your password somewhere safe. There is no password reset.",
+    ),
+  );
+  const f = el("form", "activity-form"),
+    pass = field("Password", "15 characters or more", 256),
+    confirm = field("Confirm password", "", 256);
+  for (const x of [pass, confirm]) {
+    x.i.type = "password";
+    x.i.autocomplete = "new-password";
+    x.i.required = true;
+    x.i.minLength = 15;
+  }
+  const submit = el("button", "primary", "Save permanent profile");
+  f.append(pass.w, confirm.w, submit);
+  d.append(f);
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    submit.disabled = true;
+    try {
+      if (pass.i.value !== confirm.i.value)
+        throw Error("Passwords do not match.");
+      activeVault = await enrollProfile(
+        api,
+        token,
+        device,
+        enrollment,
+        pass.i.value,
+        name,
+        myPhoto,
+      );
+      keep = false;
+      enrollment = "";
+      pass.i.value = confirm.i.value = "";
+      if (saved?.device.code === device.code) {
+        await idb("readwrite", (s) => s.delete("current"));
+        saved = null;
+      }
+      render();
+      panels.refresh();
+      showCode();
+      void poll();
+    } catch (err) {
+      errorNotice(err);
+    } finally {
+      submit.disabled = false;
+    }
+  };
+}
 async function init() {
   api("info", {}, "")
     .then((x) => (storage = x.storage))
@@ -329,6 +481,7 @@ const panels = createPanels({
   peerPhoto,
   roomPhoto,
   errorNotice,
+  enroll: upgrade,
   exit: confirmExit,
   leaveRoom: confirmLeave,
   invite: inviteDialog,
@@ -344,6 +497,7 @@ const panels = createPanels({
     device,
     name,
     keep,
+    permanent: Boolean(activeVault),
     days,
     connections,
     filter,
@@ -358,11 +512,7 @@ const panels = createPanels({
   rename: async (alias) => {
     if (!alias || alias.length > 32)
       throw Error("Use a display name of 1–32 characters.");
-    if (keep) {
-      const record = { device, name: alias, photo: myPhoto };
-      await idb("readwrite", (s) => s.put(record, "current"));
-      saved = record;
-    }
+    await saveDetails(alias, myPhoto);
     name = alias;
     render();
   },
@@ -389,21 +539,28 @@ init();
 $("identityForm").onsubmit = async (e) => {
   e.preventDefault();
   if (!entryReady) return;
-  const alias = $("name").value.trim();
-  if (!alias) {
-    $("entryError").textContent = "Enter a display name.";
-    return;
-  }
+  const mode = document.querySelector('[name="mode"]:checked').value,
+    login = loginMode;
+  let alias = $("name").value.trim(),
+    provisional = "";
   const btn = $("enterBtn");
   btn.disabled = true;
   $("entryError").textContent = "";
   try {
-    if (!crypto.subtle)
-      throw Error(
-        "Open this app over HTTPS or localhost to use encrypted messaging.",
-      );
-    keep = document.querySelector('[name="mode"]:checked').value === "saved";
-    const identity = keep && saved ? saved.device : await makeDevice();
+    if (!crypto.subtle) throw Error("Open this app over HTTPS or localhost.");
+    if (!login && !alias) throw Error("Enter a display name.");
+    const password = $("profilePass").value;
+    if (!login && mode === "permanent" && password !== $("confirmPass").value)
+      throw Error("Passwords do not match.");
+    const local = !login && mode === "saved";
+    const account = login
+      ? await restoreProfile(api, $("loginCode").value, password)
+      : local && saved
+        ? saved
+        : await prepareDevice();
+    const identity = account.device,
+      photo = account.photo || "";
+    if (login) alias = account.name;
     const challenge = await api("challenge", {}, ""),
       proof = await signText(
         identity.signKey,
@@ -414,24 +571,37 @@ $("identityForm").onsubmit = async (e) => {
       { box: identity.box, sign: identity.sign, proof, nonce: challenge.nonce },
       "",
     );
+    provisional = result.token;
     if (result.code !== identity.code)
-      throw Error("The relay returned a different device code.");
-    if (keep) {
-      try {
-        await idb("readwrite", (s) =>
-          s.put(
-            { device: identity, name: alias, photo: saved?.photo || "" },
-            "current",
-          ),
-        );
-        await api("save", {}, result.token);
-      } catch (err) {
-        await api("disconnect", {}, result.token).catch(() => {});
-        throw err;
-      }
-      saved = { device: identity, name: alias, photo: saved?.photo || "" };
+      throw Error("The relay returned a different code.");
+    let vault = account.vault || null;
+    if (!login && mode === "permanent")
+      vault = await enrollProfile(
+        api,
+        result.token,
+        identity,
+        account.enrollment,
+        password,
+        alias,
+        photo,
+      );
+    if (local) {
+      await api("save", {}, result.token);
+      const record = {
+        device: identity,
+        name: alias,
+        photo,
+        enrollment: account.enrollment || "",
+      };
+      await idb("readwrite", (s) => s.put(record, "current"));
+      saved = record;
     }
-    myPhoto = keep && validPhoto(saved?.photo) ? saved.photo : "";
+    keep = local;
+    activeVault = vault;
+    enrollment = vault ? "" : account.enrollment || "";
+    myPhoto = photo;
+    provisional = "";
+    $("profilePass").value = $("confirmPass").value = "";
     name = alias;
     device = identity;
     token = result.token;
@@ -453,12 +623,44 @@ $("identityForm").onsubmit = async (e) => {
       const next = deferredAction;
       deferredAction = "";
       runAction(next);
-    }
+    } else if (!login && mode === "permanent") showCode();
   } catch (err) {
+    if (provisional) await api("disconnect", {}, provisional).catch(() => {});
     $("entryError").textContent = err.message;
   } finally {
     btn.disabled = false;
   }
+};
+const picker = createPicker({
+  panel: $("expressionPicker"),
+  toggle: $("expressionToggle"),
+  draft: $("draft"),
+  el,
+  icon,
+  button,
+  room: () => rooms.get(current),
+  send: sendContent,
+  upload: openActivities,
+  notice: toast,
+});
+function selectReply(r, m) {
+  if (r.ownerPosts && r.owner !== device.code)
+    return toast("Only the creator can post.");
+  r.replyTo = m?.id || "";
+  paintReply(r);
+  $("draft").focus();
+}
+function paintReply(r) {
+  const m = r?.msgs.find((x) => x.id === r.replyTo);
+  $("replyDraft").hidden = !m;
+  $("replyName").textContent = m
+    ? "Replying to " + (m.code === device.code ? "yourself" : m.name)
+    : "";
+  $("replyText").textContent = m?.text || "";
+}
+$("cancelReply").onclick = () => {
+  const r = rooms.get(current);
+  if (r) selectReply(r, null);
 };
 function roomState(inv) {
   return {
@@ -487,6 +689,8 @@ function addRoom(inv) {
   return r;
 }
 function openRoom(id) {
+  picker.hide();
+  closeMessageMenu();
   panels.leave();
   hideAttachments();
   if (current && rooms.has(current))
@@ -735,7 +939,15 @@ function profile() {
   d.append(button("Edit profile picture", editPhoto, "card-action edit-photo"));
   if (days >= 3) $("modalTitle").append(badge());
   d.append(
-    el("p", "info-text", keep ? "Saved on this device" : "Temporary identity"),
+    el(
+      "p",
+      "info-text",
+      activeVault
+        ? "Permanent profile"
+        : keep
+          ? "Saved on this device"
+          : "Temporary identity",
+    ),
   );
   const copyCode = button("", () => copy(device.code), "identity-code");
   copyCode.setAttribute("aria-label", "Copy person code");
@@ -746,7 +958,11 @@ function profile() {
     [
       "badge",
       "Activity badge",
-      keep ? (days >= 3 ? "Unlocked" : (days || 0) + " / 3 days") : "Temporary",
+      activeVault || keep
+        ? days >= 3
+          ? "Unlocked"
+          : (days || 0) + " / 3 days"
+        : "Temporary",
     ],
   ]) {
     const line = el("div", "stat-line");
@@ -761,12 +977,16 @@ function profile() {
     el(
       "p",
       "helper",
-      keep
-        ? "Message others on three different UTC dates to earn the blue tick."
-        : "Keep this identity to earn a badge across visits.",
+      activeVault
+        ? "Message others on three distinct UTC dates to earn the gold tick."
+        : keep
+          ? "Message others on three different UTC dates to earn the blue tick."
+          : "Keep this identity to earn a badge across visits.",
     ),
   );
-  if (!keep)
+  if (!activeVault)
+    actions(d, button("Make profile permanent", upgrade, "primary"));
+  if (!keep && !activeVault)
     actions(
       d,
       button("Keep this identity", async () => {
@@ -775,10 +995,10 @@ function profile() {
             "This browser already has a saved identity. Open and forget it before saving another.",
           );
         await idb("readwrite", (s) =>
-          s.put({ device, name, photo: myPhoto }, "current"),
+          s.put({ device, name, photo: myPhoto, enrollment }, "current"),
         );
         await api("save");
-        saved = { device, name, photo: myPhoto };
+        saved = { device, name, photo: myPhoto, enrollment };
         keep = true;
         days = 0;
         render();
@@ -788,14 +1008,18 @@ function profile() {
   actions(
     d,
     button("Leave session", () => confirmExit(false)),
-    ...(keep
+    ...(keep || activeVault
       ? [button("Forget identity", () => confirmExit(true), "secondary danger")]
       : []),
   );
 }
 function confirmExit(forget) {
   const d = dialog(
-    forget ? "Forget this identity?" : "Leave this session?",
+    forget
+      ? activeVault
+        ? "Delete permanent profile?"
+        : "Forget this identity?"
+      : "Leave this session?",
     "exit",
   );
   d.append(
@@ -803,11 +1027,13 @@ function confirmExit(forget) {
       "p",
       "modal-copy",
       forget
-        ? "This deletes the saved device keys and activity badge. Its active rooms close for everyone."
+        ? "This deletes the saved profile and activity badge. Its active rooms close for everyone."
         : "Your active rooms will close for everyone. " +
-            (keep
-              ? "Your saved code stays on this device."
-              : "Your temporary code will be lost."),
+            (activeVault
+              ? "Log in again with your code and password."
+              : keep
+                ? "Your saved code stays on this device."
+                : "Your temporary code will be lost."),
     ),
   );
   actions(
@@ -818,7 +1044,8 @@ function confirmExit(forget) {
       async () => {
         await api(forget ? "forget" : "disconnect");
         if (forget) {
-          await idb("readwrite", (s) => s.delete("current"));
+          if (saved?.device.code === device.code)
+            await idb("readwrite", (s) => s.delete("current"));
           localStorage.removeItem("pc-view-" + device.code);
         }
         token = "";
@@ -866,6 +1093,7 @@ function render() {
     device.code,
     name,
     keep,
+    Boolean(activeVault),
     days,
     connections,
     current,
@@ -888,7 +1116,7 @@ function render() {
   $("selfDot").hidden = false;
   $("profileTop").setAttribute("aria-label", "Your identity: " + name);
   $("orbitName").textContent = name;
-  $("begin").hidden = true;
+  $("begin").hidden = $("menuLogin").hidden = $("landingLogin").hidden = true;
   $("emptyCopy").textContent =
     "Select a conversation to start messaging privately, right here in this window.";
   $("listTitle").textContent =
@@ -946,7 +1174,9 @@ function render() {
       r.kind === "direct" &&
       r.peers.some((p) => p.code !== device.code && p.badge)
     )
-      title.append(badge());
+      title.append(
+        badge(r.peers.find((p) => p.code !== device.code && p.badge).badge),
+      );
     details.append(
       title,
       el(
@@ -999,6 +1229,12 @@ function render() {
   $("inviteBtn").hidden =
     r.owner !== device.code || (r.kind === "direct" && r.peers.length >= 2);
   updateSend();
+  const pin = r.msgs.find((x) => x.id === r.pin);
+  $("pinnedMessage").hidden = !pin;
+  if (pin) {
+    $("pinnedMessage").replaceChildren(icon("pin"), el("span", null, pin.text));
+    $("pinnedMessage").onclick = () => $("message-" + pin.id)?.focus();
+  }
   renderThread(r);
 }
 function displayRoom(r) {
@@ -1046,6 +1282,7 @@ function renderThread(r) {
           : "Invite someone to start chatting.",
       ),
     );
+  const byId = new Map(r.msgs.map((m) => [m.id, m]));
   for (const m of r.msgs) {
     const dt = new Date(m.created),
       date = dt.toDateString();
@@ -1066,25 +1303,46 @@ function renderThread(r) {
       row.append(avatar("noir", roomPhoto(r, m.code), m.code));
       const meta = el("span", "meta", m.name);
       if (r.peers.some((p) => p.code === m.code && p.badge))
-        meta.append(badge());
+        meta.append(badge(r.peers.find((p) => p.code === m.code).badge));
       body.append(meta);
     }
+    row.id = "message-" + m.id;
+    row.tabIndex = -1;
+    if (m.replyTo) {
+      const original = byId.get(m.replyTo),
+        quote = button(
+          "",
+          () => {
+            const ref = $("message-" + m.replyTo);
+            if (ref) {
+              ref.scrollIntoView({ block: "center" });
+              ref.focus({ preventScroll: true });
+            }
+          },
+          "quoted-message",
+        );
+      quote.disabled = !original;
+      quote.append(
+        el("strong", null, original?.name || "Original message unavailable"),
+      );
+      if (original) quote.append(el("span", null, original.text));
+      body.append(quote);
+    }
+    const tools = el("div", "message-tools");
+    for (const [glyph, label, fn] of [
+      ["smile-plus", "React", () => messageActions(r, m, true)],
+      ["reply", "Reply", () => selectReply(r, m)],
+      ["ellipsis", "More", () => messageActions(r, m)],
+    ]) {
+      const b = button("", fn, "message-tool");
+      b.title = label;
+      b.setAttribute("aria-label", label + " to " + m.name);
+      b.append(icon(glyph));
+      tools.append(b);
+    }
     const foot = el("span", "meta-foot");
-    const star = button(
-      "",
-      () => {
-        if (r.stars.has(m.seq)) r.stars.delete(m.seq);
-        else r.stars.add(m.seq);
-        r.revision++;
-        render();
-      },
-      "star-toggle",
-    );
-    star.title = r.stars.has(m.seq) ? "Unstar message" : "Star message";
-    star.setAttribute("aria-label", star.title);
-    star.setAttribute("aria-pressed", String(r.stars.has(m.seq)));
-    star.append(icon("star"));
-    foot.append(star, el("time", null, clock(m.created)));
+    foot.append(el("time", null, clock(m.created)));
+    if (r.stars.has(m.seq)) foot.append(icon("star"));
     if (own) {
       const sent = icon("circle-check");
       sent.title = "Sent to room";
@@ -1100,7 +1358,29 @@ function renderThread(r) {
           openFile: (f) => openFile(r, f),
         })
       : el("p", "bubble", m.text);
-    body.append(content, foot);
+    const line = el("div", "bubble-line");
+    line.append(content, tools);
+    body.append(line);
+    if (m.reactions?.size) {
+      const counts = new Map();
+      for (const sym of m.reactions.values())
+        counts.set(sym, (counts.get(sym) || 0) + 1);
+      const bar = el("div", "reaction-counts");
+      for (const [sym, count] of counts) {
+        const b = button(
+          sym + " " + count,
+          () => react(r, m, sym),
+          "reaction-count",
+        );
+        b.setAttribute(
+          "aria-pressed",
+          String(m.reactions.get(device.code) === sym),
+        );
+        bar.append(b);
+      }
+      body.append(bar);
+    }
+    body.append(foot);
     row.append(body);
     thread.append(row);
   }
@@ -1109,6 +1389,7 @@ function renderThread(r) {
 }
 
 function expireMessages() {
+  if (menuTarget && !isLive(menuTarget.r, menuTarget.m)) closeMessageMenu();
   for (const r of rooms.values()) {
     const expired = r.msgs.filter(
       (m) => m.deadline && m.deadline <= Date.now(),
@@ -1213,6 +1494,11 @@ async function poll() {
         if (v.activity && !activity) continue;
         const message = {
           seq: e.seq,
+          id: e.packet.slice(-86),
+          replyTo:
+            typeof v.replyTo === "string" && /^[\w-]{86}$/.test(v.replyTo)
+              ? v.replyTo
+              : "",
           name: v.name.slice(0, 32),
           code: p.code,
           text: activity ? describe(activity) : v.text,
@@ -1256,10 +1542,14 @@ async function poll() {
   } catch (e) {
     if (e.status === 401) {
       clearTimeout(timer);
+      closeMessageMenu();
+      picker.hide();
       token = "";
       rooms.clear();
       current = "";
-      device = null;
+      device = activeVault = null;
+      keep = false;
+      enrollment = "";
       myPhoto = "";
       for (const node of ownAvatarNodes()) paintPhoto(node, "");
       after = 0;
@@ -1285,7 +1575,10 @@ async function poll() {
       $("orbitName").textContent = "My identity";
       $("selfDot").hidden = true;
       $("profileTop").setAttribute("aria-label", "Your identity");
-      $("begin").hidden = false;
+      $("begin").hidden =
+        $("menuLogin").hidden =
+        $("landingLogin").hidden =
+          false;
       if ($("modal").open) close();
       startIdentity();
       $("entryError").textContent = e.message;
@@ -1353,11 +1646,7 @@ function editPhoto() {
     "Save picture",
     async () => {
       if (reading) return;
-      if (keep) {
-        const record = { device, name, photo: chosen };
-        await idb("readwrite", (s) => s.put(record, "current"));
-        saved = record;
-      }
+      await saveDetails(name, chosen);
       myPhoto = chosen;
       for (const x of ownAvatarNodes()) paintPhoto(x, myPhoto);
       close();
@@ -1418,9 +1707,16 @@ async function sendContent(
   file = null,
   onProgress = null,
   plain = "",
+  includeReply = true,
 ) {
   if (!device || rooms.get(r.id) !== r) throw Error("This room has closed.");
   if (r.sending) throw Error("Wait for the current send to finish.");
+  const replyTo =
+    includeReply &&
+    !["vote", "move", "reaction"].includes(activity?.type) &&
+    r.msgs.some((m) => m.id === r.replyTo)
+      ? r.replyTo
+      : "";
   const sender = device,
     alias = name,
     photo = myPhoto;
@@ -1442,12 +1738,14 @@ async function sendContent(
       text,
       photo,
       ...(activity ? { activity } : {}),
+      ...(replyTo ? { replyTo } : {}),
     });
     await api("send", {
       room: r.id,
       packet,
       ...(file ? { file: activity.file.id } : {}),
     });
+    if (replyTo && r.replyTo === replyTo) r.replyTo = "";
     setSendState(r, "sent", 1);
     onProgress?.(1);
     void poll();
@@ -1460,6 +1758,7 @@ async function sendContent(
   }
 }
 function openActivities(kind = "", file = null) {
+  picker.hide();
   const r = rooms.get(current);
   if (!r) return;
   shareMenu(
@@ -1512,7 +1811,6 @@ async function openFile(r, f) {
     a.href = url;
     a.download = f.filename.replace(/[\\/\u0000-\u001f]/g, "_") || "attachment";
     d.append(a);
-    if (!tag) a.click();
   } catch (err) {
     if (marker.isConnected) {
       marker.textContent = err.message;
@@ -1548,12 +1846,19 @@ document.addEventListener("paste", (e) => {
   )
     return;
   const item = Array.from(e.clipboardData?.items || []).find(
-    (x) => x.kind === "file" && x.type.startsWith("image/"),
+    (x) => x.kind === "file",
   );
   const file = item?.getAsFile();
   if (!file) return;
   e.preventDefault();
-  openActivities(file.type === "image/gif" ? "gif" : "photo", file);
+  openActivities(
+    file.type === "image/gif"
+      ? "gif"
+      : file.type.startsWith("image/")
+        ? "photo"
+        : "document",
+    file,
+  );
 });
 function hideAttachments(restore = false) {
   $("attachmentMenu").hidden = true;
@@ -1619,7 +1924,7 @@ function hideMenus() {
   $("inboxMenu").hidden = true;
   $("menuToggle").setAttribute("aria-expanded", "false");
 }
-function startIdentity(next = "") {
+function startIdentity(next = "", login = false) {
   panels.leave();
   hideAttachments();
   deferredAction = next;
@@ -1627,9 +1932,10 @@ function startIdentity(next = "") {
   $("emptyChat").hidden = true;
   $("roomPanel").hidden = true;
   $("workspace").classList.add("entry-open");
-  $("name").focus();
+  switchAccess(login);
 }
 function guestsInbox() {
+  $("profilePass").value = $("confirmPass").value = "";
   deferredAction = "";
   $("entry").hidden = true;
   $("emptyChat").hidden = false;
@@ -1663,6 +1969,7 @@ function showInvitations() {
     );
 }
 function runAction(action) {
+  if (action !== "emoji") picker.hide();
   hideMenus();
   if (action !== "room-actions") hideAttachments();
   if (action === "privacy") {
@@ -1675,7 +1982,10 @@ function runAction(action) {
     return;
   }
   if (!device) {
-    startIdentity(action === "enter" ? "" : action);
+    startIdentity(
+      ["enter", "login"].includes(action) ? "" : action,
+      action === "login",
+    );
     return;
   }
   const handlers = {
@@ -1685,7 +1995,8 @@ function runAction(action) {
     join: pasteInvite,
     profile: () => panels.settings("Account"),
     settings: () => panels.settings(),
-    emoji: () => openActivities("emoji"),
+    emoji: () => picker.open(),
+    file: () => openActivities("document"),
     code: () => copy(device.code),
     directs: () => chooseFilter("direct"),
     discussions: () => chooseFilter("discussion"),
@@ -1701,6 +2012,8 @@ function updateSend() {
     phase = r?.feedback || "",
     hasText = !!$("draft").value.trim();
   const readOnly = Boolean(r?.ownerPosts && r.owner !== device?.code);
+  paintReply(r);
+  $("fileToggle").disabled = readOnly;
   $("draft").disabled = readOnly;
   $("attachToggle").disabled = readOnly;
   document.querySelector(".compose-emoji").disabled = readOnly;
@@ -1815,3 +2128,209 @@ document.addEventListener("visibilitychange", () => {
   }
   poll();
 });
+
+function isLive(r, m) {
+  return (
+    rooms.get(r.id) === r &&
+    r.msgs.includes(m) &&
+    (!m.deadline || m.deadline > Date.now())
+  );
+}
+function requireMessage(r, m) {
+  if (!isLive(r, m))
+    throw Error("The original message is no longer available.");
+}
+function closeMessageMenu() {
+  if ($("messageMenu").open) $("messageMenu").close();
+  menuTarget = null;
+}
+async function react(r, m, symbol) {
+  requireMessage(r, m);
+  await sendContent(r, {
+    type: "reaction",
+    target: m.id,
+    symbol: m.reactions?.get(device.code) === symbol ? "" : symbol,
+  });
+}
+function messageActions(r, m, reactionsOnly = false) {
+  requireMessage(r, m);
+  const menu = $("messageMenu");
+  menuTarget = { r, m };
+  menu.replaceChildren();
+  const quick = el("div", "quick-reactions");
+  function reactionButton(item) {
+    const b = button(
+      item.symbol,
+      async () => {
+        await react(r, m, item.symbol);
+        closeMessageMenu();
+      },
+      "quick-reaction",
+    );
+    b.title = item.label;
+    b.setAttribute("aria-label", "React with " + item.label);
+    b.setAttribute(
+      "aria-pressed",
+      String(m.reactions?.get(device.code) === item.symbol),
+    );
+    return b;
+  }
+  for (const sym of ["❤️", "😂", "😮", "😢", "👍", "🔥"])
+    quick.append(reactionButton(emoji.find((x) => x.symbol === sym)));
+  const more = button(
+    "",
+    () => messageActions(r, m, !reactionsOnly),
+    "more-reactions",
+  );
+  more.append(icon(reactionsOnly ? "back" : "plus"));
+  more.setAttribute(
+    "aria-label",
+    reactionsOnly ? "Message actions" : "More reactions",
+  );
+  quick.append(more);
+  const sheet = el("section", "message-sheet");
+  sheet.append(el("div", "sheet-preview", m.text));
+  menu.append(quick, sheet);
+  if (reactionsOnly) {
+    const grid = el("div", "reaction-library");
+    for (const item of emoji) grid.append(reactionButton(item));
+    sheet.append(grid);
+  } else {
+    const items = [
+      ["reply", "Reply", () => selectReply(r, m)],
+      ["smile-plus", "React", () => messageActions(r, m, true)],
+      ["sparkles", "Summarize from here", () => summarize(r, m)],
+      ["forward", "Forward", () => forwardMessage(r, m)],
+      [
+        "star",
+        r.stars.has(m.seq) ? "Unstar message" : "Star message",
+        () => {
+          if (r.stars.has(m.seq)) r.stars.delete(m.seq);
+          else r.stars.add(m.seq);
+          r.revision++;
+          render();
+        },
+      ],
+      [
+        "pin",
+        r.pin === m.id ? "Unpin message" : "Pin message",
+        () => {
+          r.pin = r.pin === m.id ? "" : m.id;
+          r.revision++;
+          render();
+          toast(r.pin ? "Pinned in this tab." : "Pin removed.");
+        },
+      ],
+      ["copy", "Copy text", () => copy(m.text)],
+    ];
+    for (const [glyph, label, fn] of items) {
+      const b = button(
+        "",
+        async () => {
+          requireMessage(r, m);
+          if (glyph !== "smile-plus") closeMessageMenu();
+          await fn();
+        },
+        "sheet-action",
+      );
+      b.append(icon(glyph), el("span", null, label));
+      sheet.append(b);
+    }
+  }
+  if (!menu.open) menu.showModal();
+  (reactionsOnly ? quick : sheet)
+    .querySelector("button")
+    ?.focus({ preventScroll: true });
+}
+$("messageMenu").addEventListener("close", () => {
+  if (!$("messageMenu").open) {
+    menuTarget = null;
+    $("messageMenu").replaceChildren();
+  }
+});
+$("messageMenu").onclick = (e) => {
+  if (e.target === $("messageMenu")) closeMessageMenu();
+};
+function summarize(r, m) {
+  const list = r.msgs.slice(r.msgs.indexOf(m)),
+    d = dialog("Summary from here", "sparkles");
+  d.classList.add("media-detail");
+  d.append(
+    el(
+      "p",
+      "info-text",
+      list.length +
+        " messages · " +
+        new Set(list.map((x) => x.code)).size +
+        " participants · summarized on this device",
+    ),
+  );
+  const words = (t) => [
+      ...new Set(t.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) || []),
+    ],
+    counts = new Map();
+  for (const msg of list)
+    for (const w of words(msg.text)) counts.set(w, (counts.get(w) || 0) + 1);
+  const ranked = list.map((msg, index) => {
+    const ws = words(msg.text);
+    return {
+      msg,
+      index,
+      score:
+        ws.reduce((n, w) => n + counts.get(w), 0) / Math.sqrt(ws.length || 1),
+    };
+  });
+  const notes = el("ul", "summary-list");
+  for (const { msg } of ranked
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, 4)
+    .sort((a, b) => a.index - b.index)) {
+    const li = el("li");
+    li.append(
+      el("strong", null, msg.name),
+      el("p", null, msg.text.slice(0, 240)),
+    );
+    notes.append(li);
+  }
+  d.append(notes);
+}
+function forwardMessage(source, m) {
+  const d = dialog("Forward message", "forward");
+  d.classList.add("media-detail");
+  const choices = [...rooms.values()].filter(
+    (r) => r !== source && (!r.ownerPosts || r.owner === device.code),
+  );
+  d.append(
+    el(
+      "p",
+      "info-text",
+      choices.length
+        ? "Choose a room to receive a new encrypted copy."
+        : "Open another room first, then forward this message.",
+    ),
+  );
+  for (const r of choices)
+    d.append(
+      option(
+        displayRoom(r),
+        r.kind === "direct" ? "Direct chat" : "Discussion",
+        "forward",
+        async () => {
+          requireMessage(source, m);
+          let a = m.activity ? { ...m.activity } : null,
+            file = null;
+          if (a?.type === "file") {
+            const f = a.file,
+              blob = await downloadFile(api, source.id, f);
+            file = new File([blob], f.filename, { type: f.mime });
+            a = { type: "file", kind: a.kind };
+          }
+          if (a && ["game", "poll"].includes(a.type)) a.id = random(16);
+          requireMessage(source, m);
+          await sendContent(r, a, file, null, a ? "" : m.text, false);
+          close();
+          toast("Forwarded to " + displayRoom(r) + ".");
+        },
+      ),
+    );
+}
