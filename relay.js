@@ -11,6 +11,7 @@ const SECOND = 1000,
   HOUR = 60 * MINUTE;
 const LEASE = 90 * SECOND,
   MAX_ROOM = 8;
+const MAX_FILE_PARTS = 400; // 50 MiB in 128 KiB encrypted pieces.
 const idPattern = /^[A-Za-z0-9_-]{22}$/;
 const personPattern = /^PC-(?:[0-9A-F]{4}-){5}[0-9A-F]{4}$/;
 class ApiError extends Error {
@@ -496,14 +497,14 @@ export function makeRelay({ now = Date.now } = {}) {
           idPattern.test(b.file) &&
             Number.isInteger(b.parts) &&
             b.parts >= 1 &&
-            b.parts <= 32,
+            b.parts <= MAX_FILE_PARTS,
           400,
           "Invalid attachment size.",
         );
         const out = await q(
           `INSERT OR IGNORE INTO transfers(id,room,owner,parts,expires)
           SELECT ?,?,?,?,? WHERE
-          (SELECT coalesce(sum(parts),0) FROM transfers WHERE room=?) + ? <= 512 AND
+          (SELECT coalesce(sum(parts),0) FROM transfers WHERE room=?) + ? <= 1200 AND
           (SELECT coalesce(sum(parts),0) FROM transfers) + ? <= 4096 AND
           (SELECT count(*) FROM transfers WHERE owner=? AND published IS NULL) < 4`,
           b.file,
@@ -528,7 +529,7 @@ export function makeRelay({ now = Date.now } = {}) {
           idPattern.test(b.file) &&
             Number.isInteger(b.part) &&
             b.part >= 0 &&
-            b.part < 32,
+            b.part < MAX_FILE_PARTS,
           400,
           "Invalid attachment part.",
         );
@@ -540,7 +541,7 @@ export function makeRelay({ now = Date.now } = {}) {
             400,
             "Invalid encrypted part.",
           );
-          const out = await q(
+          const [out] = await db.batch([q(
             `INSERT OR IGNORE INTO pieces SELECT id,?,? FROM transfers
             WHERE id=? AND owner=? AND room=? AND parts>? AND published IS NULL AND expires>?`,
             b.part,
@@ -550,7 +551,7 @@ export function makeRelay({ now = Date.now } = {}) {
             room,
             b.part,
             at,
-          ).run();
+          ),q("UPDATE transfers SET expires=min(?,(SELECT expires FROM rooms WHERE id=?)) WHERE id=? AND owner=? AND room=? AND published IS NULL AND changes()>0",at+2*MINUTE,room,b.file,code,room)]);
           if (!changes(out)) {
             const existing = await q(
               `SELECT 1 AS ok FROM pieces p JOIN transfers t ON t.id=p.transfer

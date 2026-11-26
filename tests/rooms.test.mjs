@@ -431,3 +431,26 @@ test("creator-managed posting, signed description and disappearing files", async
     f.db.close();
   }
 });
+
+test("50 MiB arbitrary-extension file round-trips while oversized attachments are rejected",async()=>{
+  const f=fixture();
+  try{
+    const a=await f.login(),b=await f.login(),{room,key}=await joinTwo(f,a,b);
+    const call=who=>async(path,body)=>{const result=await f.req(path,body,who.token);assert.equal(result.status,200,result.error);return result;};
+    const size=50*1024*1024,bytes=new Uint8Array(size);
+    for(let i=0;i<bytes.length;i+=PART)bytes[i]=(i/PART)%251;
+    bytes[size-1]=173;
+    const desc=await uploadFile(call(a),room,new File([bytes],"payload.custom-format"),()=>{});
+    assert.equal(desc.mime,"");
+    const packet=await packMessage(a,room,key,{text:"File",name:"Test",activity:{type:"file",kind:"document",file:desc}});
+    await call(a)("send",{room,packet,file:desc.id});
+    const state=await call(b)("sync",{}),message=await unpackMessage(a,room,key,state.events[0].packet);
+    const result=await downloadFile(call(b),room,message.activity.file);
+    assert.equal(result.type,"application/octet-stream");
+    assert.equal(message.activity.file.filename,"payload.custom-format");
+    assert.deepEqual(new Uint8Array(await result.arrayBuffer()),bytes);
+    await assert.rejects(uploadFile(call(a),room,{size:size+1}),/50 MiB/);
+    assert.equal((await f.req("upload-start",{room,file:random(16),parts:401},a.token)).status,400);
+    assert.equal((await f.req("upload-part",{room,file:desc.id,part:400,data:"x"},a.token)).status,400);
+  }finally{f.db.close();}
+});

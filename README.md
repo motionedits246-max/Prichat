@@ -27,11 +27,11 @@ Open **http://127.0.0.1:5173**. For a two-person test on one PC, open two tabs w
 
 Press **Enter** or the send arrow. The progress bar completes when the relay accepts the message. Failed text stays in the composer. File uploads report progress as encrypted parts are accepted.
 
-Open **+** to share photos, video, audio files, documents, GIFs, emoji, a contact, an event, a note, or a location you review before sending. Pasting an image opens the same review step. The sticker maker crops a picture and adds an optional caption. The GIF maker combines two to eight local images. Each shared file can be up to 4 MiB. Original file attachments can contain their original metadata. Open a received file to decrypt it on your device.
+Open **+** to share photos, video, audio files, documents, GIFs, emoji, a contact, an event, a note, or a location you review before sending. Pasting an image opens the same review step. The sticker maker crops a picture and adds an optional caption. The GIF maker combines two to eight local images. Choose **File or document** to send any extension, including an extensionless file, up to 50 MiB (52,428,800 bytes). Original file attachments can contain their original metadata. Open a received file to decrypt it on your device.
 
 Post a poll or start **Tic-tac-toe** or **Four in a row** while participants are in the room. Votes can be changed. Game moves and votes travel as signed room messages. People who join later do not receive earlier cards. The creator plays first, and the first other participant to make a legal move takes the second seat.
 
-Open Settings and use the pencil on your avatar, or select **Account → Profile picture**. The browser crops and re-encodes the image, saves it only for a saved identity, and shares it inside subsequent encrypted messages. Each attachment uses a fresh file key carried inside its signed room message. Published encrypted parts expire with their message timer or the room, whichever comes first. Unfinished uploads expire after two minutes. Downloaded copies stay under the recipient’s control.
+Open Settings and use the pencil on your avatar, or select **Account → Profile picture**. The browser crops and re-encodes the image, saves it only for a saved identity, and shares it inside subsequent encrypted messages. Each attachment uses a fresh file key carried inside its signed room message. Published encrypted parts expire with their message timer or the room, whichever comes first. Unfinished uploads expire after two minutes without a new chunk, or when the room closes. Downloaded copies stay under the recipient’s control.
 
 ## Railway deployment
 

@@ -1,6 +1,6 @@
 import { decode, random, utf8 } from "./crypto.js";
 export const PART = 128 * 1024;
-export const MAX_FILE = 32 * PART;
+export const MAX_FILE = 50 * 1024 * 1024;
 const safeImages = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const safeAudio = [
   "audio/mpeg",
@@ -48,9 +48,21 @@ export function validFile(f) {
     f.mime.length <= 96
   );
 }
+// Keep large transfers moving without buffering the entire file in memory.
+async function transferParts(count, task) {
+  let next=0, failure;
+  async function worker(){
+    while(!failure && next<count){
+      const i=next++;
+      try{await task(i);}catch(error){failure=error;}
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(4,count)},worker));
+  if(failure)throw failure;
+}
 export async function uploadFile(api, room, file, progress) {
   if (!file.size || file.size > MAX_FILE)
-    throw Error("Choose a file between 1 byte and 4 MiB.");
+    throw Error("Choose a file between 1 byte and 50 MiB.");
   const f = {
     id: random(16),
     secret: random(32),
@@ -61,7 +73,8 @@ export async function uploadFile(api, room, file, progress) {
   const parts = Math.ceil(f.size / PART),
     key = await fileKey(f.secret, "encrypt");
   await api("upload-start", { room, file: f.id, parts });
-  for (let index = 0; index < parts; index++) {
+  let completed=0;
+  await transferParts(parts,async index=>{
     const bytes = await file
         .slice(index * PART, (index + 1) * PART)
         .arrayBuffer(),
@@ -77,15 +90,15 @@ export async function uploadFile(api, room, file, progress) {
       part: index,
       data: encodeBytes(iv) + "." + encodeBytes(new Uint8Array(encrypted)),
     });
-    progress((index + 1) / (parts + 1));
-  }
+    progress?.(++completed / (parts + 1));
+  });
   return f;
 }
 export async function downloadFile(api, room, f) {
   if (!validFile(f)) throw Error("Invalid attachment.");
   const key = await fileKey(f.secret, "decrypt"),
     chunks = [];
-  for (let index = 0; index < Math.ceil(f.size / PART); index++) {
+  await transferParts(Math.ceil(f.size/PART),async index=>{
     const { data } = await api("download-part", {
       room,
       file: f.id,
@@ -101,8 +114,8 @@ export async function downloadFile(api, room, f) {
     );
     if (bytes.byteLength !== Math.min(PART, f.size - index * PART))
       throw Error("Incomplete attachment.");
-    chunks.push(bytes);
-  }
+    chunks[index]=bytes;
+  });
   return new Blob(chunks, {
     type: mediaTag(f.mime) ? f.mime : "application/octet-stream",
   });

@@ -8,7 +8,7 @@ const entries = [
     [
       ["photo", "Photo", "images"],
       ["video", "Video", "film"],
-      ["document", "Document", "file-text"],
+      ["document", "File or document", "paperclip"],
       ["audio", "Audio", "audio-lines"],
       ["gif", "GIF", "clapperboard"],
       ["emoji", "Emoji", "smile"],
@@ -160,7 +160,7 @@ export function shareMenu(ui, r, startType = "", initialFile = null) {
           ? "2–8 frames in selection order"
           : kind === "sticker"
             ? "JPEG, PNG, WebP or GIF"
-            : "Up to 4 MiB";
+            : kind==="document"?"Any file extension · Up to 50 MiB":"Up to 50 MiB";
       if (["photo", "gif", "sticker", "maker"].includes(kind)) {
         for (const f of files.slice(0, 8)) {
           if (mediaTag(f.type) !== "img" || f.size > 12 * 1048576) continue;
@@ -228,7 +228,7 @@ export function shareMenu(ui, r, startType = "", initialFile = null) {
           f = await makeSticker(f, caption.field.value.trim(), shape.value);
         }
         if (!f.size || f.size > MAX_FILE)
-          throw Error("Choose a file between 1 byte and 4 MiB.");
+          throw Error("Choose a file between 1 byte and 50 MiB.");
         if (shareKind === "gif" && f.type !== "image/gif")
           throw Error("Choose a GIF file.");
         if (shareKind === "photo" && mediaTag(f.type) !== "img")
@@ -508,7 +508,7 @@ export function shareMenu(ui, r, startType = "", initialFile = null) {
   function menu() {
     ui.openMenu(
       [
-        ["document", "Document", "file-text"],
+        ["document", "File or document", "paperclip"],
         ["media", "Photos & videos", "images"],
         ["paste", "Paste image", "clipboard-paste"],
         ["sticker", "Sticker maker", "scissors"],
